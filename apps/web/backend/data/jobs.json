@@ -1,0 +1,11 @@
+[
+  {
+    "id": "e7100ee0-441a-4a2d-a69c-2a9ad68a1434",
+    "prompt": "the little girl is say \"good morning my people  in yoruba language",
+    "language": "yo",
+    "duration": 5,
+    "videoUrl": "http://127.0.0.1:8000/generated/e7100ee0-441a-4a2d-a69c-2a9ad68a1434.mp4",
+    "status": "completed",
+    "createdAt": "2026-03-21T16:01:59.184492Z"
+  }
+]

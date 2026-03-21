@@ -1,0 +1,11 @@
+[
+  {
+    "id": "65be7c28-b3e6-44e7-800b-d9ac2cbdbafa",
+    "prompt": "the image in the video is shaking",
+    "language": "pcm",
+    "duration": 5,
+    "videoUrl": "http://127.0.0.1:8000/generated/65be7c28-b3e6-44e7-800b-d9ac2cbdbafa.mp4",
+    "status": "completed",
+    "createdAt": "2026-03-21T16:52:33.941956Z"
+  }
+]
