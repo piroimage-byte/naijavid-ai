@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 import { useAuth } from "@/components/providers/auth-provider";
+import { saveVideoHistory } from "@/lib/video-history-service";
 
 type GenerateResponse = {
   success?: boolean;
@@ -152,6 +153,16 @@ export default function GeneratorPage() {
       setVideoUrl(absoluteVideoUrl);
       setFilename(data?.filename || "");
       setSuccess("Video generated successfully.");
+
+      await saveVideoHistory({
+        userId: user.uid,
+        title: title.trim(),
+        videoUrl: absoluteVideoUrl,
+        filename: data?.filename || "",
+        duration,
+        fps,
+        imageName: imageFile.name,
+      });
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Video generation failed.";
