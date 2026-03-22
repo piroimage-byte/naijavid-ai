@@ -1,93 +1,40 @@
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
-
 export type VideoHistoryItem = {
   id: string;
   userId: string;
-  prompt: string;
+  title?: string;
   videoUrl: string;
   createdAt?: any;
 };
 
-const COLLECTION = "videoHistory";
+const mockVideos: VideoHistoryItem[] = [];
 
-export async function saveVideoHistory(data: {
-  userId: string;
-  prompt: string;
-  videoUrl: string;
-}) {
-  if (!data.userId) {
-    throw new Error("User ID is required.");
-  }
-
-  if (!data.videoUrl) {
-    throw new Error("Video URL is required.");
-  }
-
-  await addDoc(collection(db, COLLECTION), {
-    userId: data.userId,
-    prompt: data.prompt || "",
-    videoUrl: data.videoUrl,
-    createdAt: serverTimestamp(),
-  });
-}
-
-export async function getUserVideoHistory(
+export async function getUserVideos(
   userId: string
 ): Promise<VideoHistoryItem[]> {
-  if (!userId) return [];
-
-  const q = query(
-    collection(db, COLLECTION),
-    where("userId", "==", userId),
-    orderBy("createdAt", "desc")
-  );
-
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((docItem) => {
-    const data = docItem.data();
-
-    return {
-      id: docItem.id,
-      userId: data.userId || "",
-      prompt: data.prompt || "",
-      videoUrl: data.videoUrl || "",
-      createdAt: data.createdAt,
-    };
-  });
+  return mockVideos.filter((item) => item.userId === userId);
 }
 
-export async function deleteVideoHistoryItem(id: string) {
-  if (!id) {
-    throw new Error("Video history ID is required.");
-  }
+export async function deleteUserVideo(id: string): Promise<void> {
+  const index = mockVideos.findIndex((item) => item.id === id);
 
-  await deleteDoc(doc(db, COLLECTION, id));
+  if (index >= 0) {
+    mockVideos.splice(index, 1);
+  }
 }
 
-export function formatVideoHistoryDate(value: any) {
-  if (!value) return "Unknown date";
+export async function saveUserVideo(data: {
+  userId: string;
+  title?: string;
+  videoUrl: string;
+}): Promise<VideoHistoryItem> {
+  const item: VideoHistoryItem = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    userId: data.userId,
+    title: data.title || "Generated Video",
+    videoUrl: data.videoUrl,
+    createdAt: new Date(),
+  };
 
-  if (typeof value === "string") return value;
-
-  if (value?.toDate) {
-    return value.toDate().toLocaleString();
-  }
-
-  if (value instanceof Date) {
-    return value.toLocaleString();
-  }
-
-  return "Unknown date";
+  mockVideos.unshift(item);
+  return item;
 }
