@@ -1,9 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/providers/auth-provider";
-import { saveVideoHistory } from "@/lib/video-history-service";
+import { saveVideoHistory } from "../../lib/video-history-service";
+import {
+  canGenerateVideo,
+  getUserPlan,
+  incrementDailyUsage,
+  UserPlan,
+} from "../lib/user-plan-service";
 
 type GenerateResponse = {
   success?: boolean;
@@ -31,6 +37,19 @@ function buildAbsoluteUrl(url: string, baseUrl: string) {
   return `${baseUrl}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
+function getUsageText(plan: UserPlan) {
+  if (typeof window === "undefined") return "";
+
+  if (plan === "pro") {
+    return "Pro plan: unlimited daily generation.";
+  }
+
+  const limit = 3;
+  const used = Number(localStorage.getItem("daily_usage") || "0");
+  const remaining = Math.max(0, limit - used);
+  return `Free plan: ${remaining} of ${limit} generations remaining today.`;
+}
+
 export default function GeneratorPage() {
   const { user, loading } = useAuth();
 
@@ -45,6 +64,22 @@ export default function GeneratorPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [plan, setPlan] = useState<UserPlan>("free");
+  const [usageText, setUsageText] = useState("");
+
+  useEffect(() => {
+    if (loading) return;
+
+    if (!user) {
+      setPlan("free");
+      setUsageText("");
+      return;
+    }
+
+    const currentPlan = getUserPlan();
+    setPlan(currentPlan);
+    setUsageText(getUsageText(currentPlan));
+  }, [user, loading]);
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] || null;
@@ -108,9 +143,13 @@ export default function GeneratorPage() {
     }
 
     if (!backendBaseUrl) {
-      setError(
-        "Missing backend URL. Set NEXT_PUBLIC_BACKEND_URL or NEXT_PUBLIC_API_URL."
-      );
+      setError("Missing backend URL.");
+      return;
+    }
+
+    const allowed = canGenerateVideo();
+    if (!allowed) {
+      setError("You have reached the free daily limit. Upgrade to Pro to continue.");
       return;
     }
 
@@ -163,6 +202,12 @@ export default function GeneratorPage() {
         fps,
         imageName: imageFile.name,
       });
+
+      incrementDailyUsage();
+
+      const updatedPlan = getUserPlan();
+      setPlan(updatedPlan);
+      setUsageText(getUsageText(updatedPlan));
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Video generation failed.";
@@ -180,6 +225,19 @@ export default function GeneratorPage() {
           <p className="mt-3 text-base text-neutral-400">
             Upload an image to create a short AI video.
           </p>
+
+          {user && usageText ? (
+            <p className="mt-3 text-sm text-neutral-300">{usageText}</p>
+          ) : null}
+
+          {user && plan === "free" ? (
+            <Link
+              href="/pricing"
+              className="mt-3 inline-block text-sm text-white underline"
+            >
+              Upgrade to Pro
+            </Link>
+          ) : null}
         </div>
 
         <Link
