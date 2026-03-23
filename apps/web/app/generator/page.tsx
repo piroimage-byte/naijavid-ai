@@ -1,390 +1,252 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { generateVideo } from "@/lib/api";
 import { useAuth } from "@/components/providers/auth-provider";
-import { saveVideoHistory } from "../../lib/video-history-service";
+import { saveVideo } from "@/lib/video-history-service";
+import { getUserPlan, type UserPlan } from "@/lib/user-service";
 import {
-  canGenerateVideo,
-  getUserPlan,
-  incrementDailyUsage,
-  UserPlan,
-} from "../lib/user-plan-service";
+  canUseDuration,
+  getMaxDurationByPlan,
+  getPlanLabel,
+} from "@/lib/generation-policy";
 
-type GenerateResponse = {
-  success?: boolean;
-  jobId?: string;
-  duration?: number;
-  fps?: number;
-  videoUrl?: string;
-  filename?: string;
-  detail?: string;
-  error?: string;
-};
-
-function getBackendBaseUrl() {
-  return (
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    ""
-  ).replace(/\/+$/, "");
-}
-
-function buildAbsoluteUrl(url: string, baseUrl: string) {
-  if (!url) return "";
-  if (/^https?:\/\//i.test(url)) return url;
-  if (!baseUrl) return url;
-  return `${baseUrl}${url.startsWith("/") ? "" : "/"}${url}`;
-}
-
-function getUsageText(plan: UserPlan) {
-  if (typeof window === "undefined") return "";
-
-  if (plan === "pro") {
-    return "Pro plan: unlimited daily generation.";
-  }
-
-  const limit = 3;
-  const used = Number(localStorage.getItem("daily_usage") || "0");
-  const remaining = Math.max(0, limit - used);
-  return `Free plan: ${remaining} of ${limit} generations remaining today.`;
-}
+const LANGUAGES = ["English", "Pidgin", "Yoruba", "Igbo", "Hausa"];
 
 export default function GeneratorPage() {
   const { user, loading } = useAuth();
 
-  const backendBaseUrl = useMemo(() => getBackendBaseUrl(), []);
-  const [title, setTitle] = useState("");
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState("");
-  const [duration, setDuration] = useState(10);
-  const [fps, setFps] = useState(24);
-  const [videoUrl, setVideoUrl] = useState("");
-  const [filename, setFilename] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [language, setLanguage] = useState("English");
+  const [duration, setDuration] = useState(5);
+  const [watermark, setWatermark] = useState("naijavid.ai");
+
+  const [plan, setPlan] = useState<UserPlan>("free");
+  const [planLoading, setPlanLoading] = useState(true);
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [plan, setPlan] = useState<UserPlan>("free");
-  const [usageText, setUsageText] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
 
   useEffect(() => {
-    if (loading) return;
+    async function loadPlan() {
+      if (!user?.uid) {
+        setPlan("free");
+        setPlanLoading(false);
+        return;
+      }
+
+      try {
+        const currentPlan = await getUserPlan(user.uid);
+        setPlan(currentPlan);
+      } catch {
+        setPlan("free");
+      } finally {
+        setPlanLoading(false);
+      }
+    }
+
+    loadPlan();
+  }, [user]);
+
+  useEffect(() => {
+    const maxDuration = getMaxDurationByPlan(plan);
+    if (duration > maxDuration) {
+      setDuration(maxDuration);
+    }
+  }, [plan, duration]);
+
+  async function handleGenerate() {
+    setError("");
+    setVideoUrl("");
 
     if (!user) {
-      setPlan("free");
-      setUsageText("");
+      setError("Please log in first.");
       return;
     }
 
-    const currentPlan = getUserPlan();
-    setPlan(currentPlan);
-    setUsageText(getUsageText(currentPlan));
-  }, [user, loading]);
-
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] || null;
-
-    setVideoUrl("");
-    setFilename("");
-    setSuccess("");
-    setError("");
-
-    if (!file) {
-      setImageFile(null);
-      setImagePreview("");
+    if (!prompt.trim()) {
+      setError("Please enter a prompt.");
       return;
     }
 
-    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
-    if (!allowedTypes.includes(file.type)) {
-      setImageFile(null);
-      setImagePreview("");
-      setError("Please upload a JPG, PNG, or WEBP image.");
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      setImageFile(null);
-      setImagePreview("");
-      setError("Image size must be 10MB or less.");
-      return;
-    }
-
-    setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    setError("");
-    setSuccess("");
-    setVideoUrl("");
-    setFilename("");
-
-    if (loading) {
-      setError("Authentication is still loading. Please wait a moment.");
-      return;
-    }
-
-    if (!user) {
-      setError("You must sign in before generating videos.");
-      return;
-    }
-
-    if (!title.trim()) {
-      setError("Please enter a video title.");
-      return;
-    }
-
-    if (!imageFile) {
-      setError("Please choose an image.");
-      return;
-    }
-
-    if (!backendBaseUrl) {
-      setError("Missing backend URL.");
-      return;
-    }
-
-    const allowed = canGenerateVideo();
-    if (!allowed) {
-      setError("You have reached the free daily limit. Upgrade to Pro to continue.");
+    if (!canUseDuration(plan, duration)) {
+      setError(
+        plan === "free"
+          ? "Free plan supports only 5-second videos. Upgrade to Pro for 10 seconds."
+          : "Selected duration is not allowed for your plan."
+      );
       return;
     }
 
     try {
       setSubmitting(true);
 
-      const formData = new FormData();
-      formData.append("image", imageFile);
-      formData.append("duration", String(duration));
-      formData.append("fps", String(fps));
-      formData.append("title", title.trim());
-
-      const response = await fetch(`${backendBaseUrl}/generate`, {
-        method: "POST",
-        body: formData,
-      });
-
-      let data: GenerateResponse | null = null;
-      try {
-        data = (await response.json()) as GenerateResponse;
-      } catch {
-        data = null;
-      }
-
-      if (!response.ok) {
-        const message =
-          data?.detail ||
-          data?.error ||
-          `Request failed with status ${response.status}.`;
-        throw new Error(message);
-      }
-
-      const returnedUrl = data?.videoUrl || "";
-      if (!returnedUrl) {
-        throw new Error("Backend returned no video URL.");
-      }
-
-      const absoluteVideoUrl = buildAbsoluteUrl(returnedUrl, backendBaseUrl);
-
-      setVideoUrl(absoluteVideoUrl);
-      setFilename(data?.filename || "");
-      setSuccess("Video generated successfully.");
-
-      await saveVideoHistory({
-        userId: user.uid,
-        title: title.trim(),
-        videoUrl: absoluteVideoUrl,
-        filename: data?.filename || "",
+      const result = await generateVideo({
+        prompt,
         duration,
-        fps,
-        imageName: imageFile.name,
+        language,
+        watermark,
       });
 
-      incrementDailyUsage();
+      if (!result.success) {
+        setError(result.error || "Failed to generate video.");
+        return;
+      }
 
-      const updatedPlan = getUserPlan();
-      setPlan(updatedPlan);
-      setUsageText(getUsageText(updatedPlan));
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Video generation failed.";
-      setError(message);
+      if (!result.videoUrl) {
+        setError("No video returned from server.");
+        return;
+      }
+
+      setVideoUrl(result.videoUrl);
+
+      await saveVideo({
+        userId: user.uid,
+        videoUrl: result.videoUrl,
+        prompt,
+        language,
+        duration,
+      });
+    } catch {
+      setError("Something went wrong while generating the video.");
     } finally {
       setSubmitting(false);
     }
   }
 
+  if (loading || planLoading) {
+    return (
+      <main className="min-h-screen bg-black text-white px-6 py-10">
+        <div className="max-w-3xl mx-auto">Loading...</div>
+      </main>
+    );
+  }
+
   return (
-    <main className="mx-auto max-w-5xl px-6 py-12">
-      <div className="mb-8 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-bold tracking-tight">Generate Video</h1>
-          <p className="mt-3 text-base text-neutral-400">
-            Upload an image to create a short AI video.
-          </p>
-
-          {user && usageText ? (
-            <p className="mt-3 text-sm text-neutral-300">{usageText}</p>
-          ) : null}
-
-          {user && plan === "free" ? (
-            <Link
-              href="/pricing"
-              className="mt-3 inline-block text-sm text-white underline"
-            >
-              Upgrade to Pro
-            </Link>
-          ) : null}
-        </div>
-
-        <Link
-          href="/history"
-          className="rounded border border-neutral-700 px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-900"
-        >
-          View History
-        </Link>
-      </div>
-
-      {!user && (
-        <div className="mb-6 rounded border border-red-900 bg-red-950/50 px-4 py-4 text-red-300">
-          You must sign in before generating videos.
-        </div>
-      )}
-
-      {error && (
-        <div className="mb-6 rounded border border-red-900 bg-red-950/50 px-4 py-4 text-red-300">
-          {error}
-        </div>
-      )}
-
-      {success && (
-        <div className="mb-6 rounded border border-green-900 bg-green-950/40 px-4 py-4 text-green-300">
-          {success}
-        </div>
-      )}
-
-      <form
-        onSubmit={handleSubmit}
-        className="rounded-2xl border border-neutral-800 bg-neutral-950 p-6"
-      >
-        <div className="grid gap-6 md:grid-cols-2">
+    <main className="min-h-screen bg-black text-white px-6 py-10">
+      <div className="max-w-3xl mx-auto space-y-8">
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <label className="mb-2 block text-sm font-medium text-neutral-300">
-              Video title
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="Enter video title"
-              className="w-full rounded border border-neutral-700 bg-black px-4 py-3 text-white outline-none focus:border-neutral-500"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium text-neutral-300">
-              Upload image
-            </label>
-            <input
-              type="file"
-              accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-              onChange={handleFileChange}
-              className="block w-full rounded border border-neutral-700 bg-black px-4 py-3 text-white file:mr-4 file:rounded file:border-0 file:bg-white file:px-3 file:py-2 file:text-black"
-            />
-            <p className="mt-2 text-sm text-neutral-500">
-              Accepted formats: JPG, PNG, WEBP. Max size: 10MB.
+            <h1 className="text-3xl font-bold">NaijaVid AI Generator</h1>
+            <p className="text-sm text-gray-400 mt-2">
+              Create short demo videos in Nigerian local language style.
             </p>
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-medium text-neutral-300">
-              Duration (seconds)
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={30}
-              value={duration}
-              onChange={(event) =>
-                setDuration(Number(event.target.value || 10))
-              }
-              className="w-full rounded border border-neutral-700 bg-black px-4 py-3 text-white outline-none focus:border-neutral-500"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium text-neutral-300">
-              FPS
-            </label>
-            <input
-              type="number"
-              min={12}
-              max={60}
-              value={fps}
-              onChange={(event) => setFps(Number(event.target.value || 24))}
-              className="w-full rounded border border-neutral-700 bg-black px-4 py-3 text-white outline-none focus:border-neutral-500"
-            />
+          <div className="text-right">
+            <div className="text-sm text-gray-400">Current Plan</div>
+            <div className="text-lg font-semibold">{getPlanLabel(plan)}</div>
+            {plan === "free" ? (
+              <Link
+                href="/pricing"
+                className="inline-block mt-2 rounded-xl bg-white text-black px-4 py-2 text-sm font-semibold"
+              >
+                Upgrade to Pro
+              </Link>
+            ) : null}
           </div>
         </div>
 
-        {imagePreview && (
-          <div className="mt-8">
-            <p className="mb-3 text-sm font-medium text-neutral-300">Preview</p>
-            <img
-              src={imagePreview}
-              alt="Selected preview"
-              className="max-h-[420px] w-full rounded-xl border border-neutral-800 object-contain"
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6 space-y-5">
+          <div>
+            <label className="block mb-2 text-sm font-medium">Prompt</label>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Example: A man sitting on a chair in his house"
+              className="w-full h-36 rounded-xl bg-zinc-950 border border-zinc-700 px-4 py-3 outline-none"
             />
           </div>
-        )}
 
-        <div className="mt-8">
+          <div className="grid md:grid-cols-3 gap-4">
+            <div>
+              <label className="block mb-2 text-sm font-medium">Language</label>
+              <select
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className="w-full rounded-xl bg-zinc-950 border border-zinc-700 px-4 py-3 outline-none"
+              >
+                {LANGUAGES.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block mb-2 text-sm font-medium">Duration</label>
+              <select
+                value={duration}
+                onChange={(e) => setDuration(Number(e.target.value))}
+                className="w-full rounded-xl bg-zinc-950 border border-zinc-700 px-4 py-3 outline-none"
+              >
+                <option value={5}>5 seconds</option>
+                <option value={10} disabled={plan !== "pro"}>
+                  10 seconds {plan !== "pro" ? "(Pro only)" : ""}
+                </option>
+              </select>
+              {plan === "free" ? (
+                <p className="text-xs text-amber-400 mt-2">
+                  Free plan is limited to 5 seconds.
+                </p>
+              ) : null}
+            </div>
+
+            <div>
+              <label className="block mb-2 text-sm font-medium">Watermark</label>
+              <input
+                value={watermark}
+                onChange={(e) => setWatermark(e.target.value)}
+                className="w-full rounded-xl bg-zinc-950 border border-zinc-700 px-4 py-3 outline-none"
+              />
+            </div>
+          </div>
+
           <button
-            type="submit"
-            disabled={submitting || !user}
-            className="rounded bg-white px-6 py-3 font-medium text-black disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            onClick={handleGenerate}
+            disabled={submitting}
+            className="w-full rounded-xl bg-white text-black font-semibold px-5 py-3 disabled:opacity-60"
           >
             {submitting ? "Generating..." : "Generate Video"}
           </button>
+
+          {error ? (
+            <div className="rounded-xl bg-red-950 border border-red-800 px-4 py-3 text-red-300 text-sm">
+              {error}
+            </div>
+          ) : null}
         </div>
-      </form>
 
-      {videoUrl && (
-        <section className="mt-8 rounded-2xl border border-neutral-800 bg-neutral-950 p-6">
-          <h2 className="text-2xl font-semibold">Generated Video</h2>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
+          <h2 className="text-xl font-semibold mb-4">Preview</h2>
 
-          <div className="mt-4 overflow-hidden rounded-xl border border-neutral-800">
-            <video
-              src={videoUrl}
-              controls
-              className="w-full"
-              preload="metadata"
-            />
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-3">
-            <a
-              href={videoUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded bg-white px-4 py-2 font-medium text-black"
-            >
-              Open Video
-            </a>
-
-            <a
-              href={videoUrl}
-              download={filename || `${title || "naijavid-video"}.mp4`}
-              className="rounded border border-neutral-700 px-4 py-2 text-neutral-200"
-            >
-              Download Video
-            </a>
-          </div>
-        </section>
-      )}
+          {videoUrl ? (
+            <div className="space-y-4">
+              <video
+                src={videoUrl}
+                controls
+                className="w-full rounded-xl border border-zinc-700"
+              />
+              <a
+                href={videoUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-block rounded-xl bg-white text-black px-5 py-3 font-semibold"
+              >
+                Open Video
+              </a>
+            </div>
+          ) : (
+            <p className="text-gray-400 text-sm">
+              Your generated video will appear here.
+            </p>
+          )}
+        </div>
+      </div>
     </main>
   );
 }

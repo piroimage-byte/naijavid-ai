@@ -1,20 +1,19 @@
 import {
   doc,
   getDoc,
-  serverTimestamp,
   setDoc,
   updateDoc,
-  increment,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-export type UserPlan = "FREE" | "BASIC" | "PRO";
+export type UserPlan = "free" | "pro";
 
 export type UserProfile = {
-  userId: string;
-  email?: string | null;
+  uid: string;
+  email?: string;
+  displayName?: string;
   plan: UserPlan;
-  generationCount: number;
   createdAt?: any;
   updatedAt?: any;
 };
@@ -22,18 +21,19 @@ export type UserProfile = {
 const COLLECTION = "users";
 
 export async function ensureUserProfile(data: {
-  userId: string;
+  uid: string;
   email?: string | null;
+  displayName?: string | null;
 }) {
-  const ref = doc(db, COLLECTION, data.userId);
+  const ref = doc(db, COLLECTION, data.uid);
   const snapshot = await getDoc(ref);
 
   if (!snapshot.exists()) {
     await setDoc(ref, {
-      userId: data.userId,
+      uid: data.uid,
       email: data.email || "",
-      plan: "FREE",
-      generationCount: 0,
+      displayName: data.displayName || "",
+      plan: "free",
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -41,73 +41,38 @@ export async function ensureUserProfile(data: {
   }
 
   await updateDoc(ref, {
-    email: data.email || snapshot.data()?.email || "",
+    email: data.email || "",
+    displayName: data.displayName || "",
     updatedAt: serverTimestamp(),
   });
 }
 
-export async function getUserProfile(
-  userId: string
-): Promise<UserProfile | null> {
-  const ref = doc(db, COLLECTION, userId);
+export async function getUserProfile(uid: string): Promise<UserProfile | null> {
+  const ref = doc(db, COLLECTION, uid);
   const snapshot = await getDoc(ref);
 
   if (!snapshot.exists()) {
     return null;
   }
 
-  const data = snapshot.data();
-
-  return {
-    userId: data.userId || userId,
-    email: data.email || "",
-    plan: data.plan || "FREE",
-    generationCount: data.generationCount || 0,
-    createdAt: data.createdAt,
-    updatedAt: data.updatedAt,
-  };
+  return snapshot.data() as UserProfile;
 }
 
-export async function canUserGenerate(userId: string): Promise<{
-  allowed: boolean;
-  reason?: string;
-}> {
-  const profile = await getUserProfile(userId);
-
-  if (!profile) {
-    return { allowed: false, reason: "User profile not found." };
-  }
-
-  if (profile.plan === "PRO") {
-    return { allowed: true };
-  }
-
-  const limit = profile.plan === "BASIC" ? 30 : 5;
-
-  if ((profile.generationCount || 0) >= limit) {
-    return {
-      allowed: false,
-      reason: `You have reached your ${profile.plan} plan limit.`,
-    };
-  }
-
-  return { allowed: true };
+export async function getUserPlan(uid: string): Promise<UserPlan> {
+  const profile = await getUserProfile(uid);
+  return profile?.plan || "free";
 }
 
-export async function incrementGenerationCount(userId: string) {
-  const ref = doc(db, COLLECTION, userId);
+export async function setUserPlan(uid: string, plan: UserPlan) {
+  const ref = doc(db, COLLECTION, uid);
 
-  await updateDoc(ref, {
-    generationCount: increment(1),
-    updatedAt: serverTimestamp(),
-  });
-}
-
-export async function setUserPlan(userId: string, plan: UserPlan) {
-  const ref = doc(db, COLLECTION, userId);
-
-  await updateDoc(ref, {
-    plan,
-    updatedAt: serverTimestamp(),
-  });
+  await setDoc(
+    ref,
+    {
+      uid,
+      plan,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
 }

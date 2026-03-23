@@ -1,57 +1,44 @@
 import {
   addDoc,
   collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  orderBy,
-  query,
   serverTimestamp,
+  getDocs,
+  query,
+  orderBy,
   where,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { db } from "@/lib/firebase";
 
-const COLLECTION = "videoHistory";
+const COLLECTION = "videos";
 
-export type VideoHistoryItem = {
+export type VideoItem = {
   id: string;
   userId: string;
-  title: string;
   videoUrl: string;
-  filename?: string;
+  prompt?: string;
+  language?: string;
   duration?: number;
-  fps?: number;
-  imageName?: string;
   createdAt?: any;
 };
 
-export async function saveVideoHistory(data: {
+export async function saveVideo(data: {
   userId: string;
-  title: string;
   videoUrl: string;
-  filename?: string;
+  prompt?: string;
+  language?: string;
   duration?: number;
-  fps?: number;
-  imageName?: string;
 }) {
-  if (!data.userId) throw new Error("User ID is required.");
-  if (!data.videoUrl) throw new Error("Video URL is required.");
-
   await addDoc(collection(db, COLLECTION), {
     userId: data.userId,
-    title: data.title?.trim() || "Untitled Video",
     videoUrl: data.videoUrl,
-    filename: data.filename || "",
-    duration: data.duration || 0,
-    fps: data.fps || 0,
-    imageName: data.imageName || "",
+    prompt: data.prompt || "",
+    language: data.language || "",
+    duration: data.duration || 5,
     createdAt: serverTimestamp(),
   });
 }
 
-export async function getUserVideoHistory(userId: string) {
-  if (!userId) return [];
-
+export async function getUserVideos(userId: string) {
   const q = query(
     collection(db, COLLECTION),
     where("userId", "==", userId),
@@ -60,24 +47,8 @@ export async function getUserVideoHistory(userId: string) {
 
   const snapshot = await getDocs(q);
 
-  return snapshot.docs.map((item) => {
-    const data = item.data();
-
-    return {
-      id: item.id,
-      userId: data.userId || "",
-      title: data.title || "Untitled Video",
-      videoUrl: data.videoUrl || "",
-      filename: data.filename || "",
-      duration: data.duration || 0,
-      fps: data.fps || 0,
-      imageName: data.imageName || "",
-      createdAt: data.createdAt,
-    } as VideoHistoryItem;
-  });
-}
-
-export async function deleteVideoHistory(id: string) {
-  if (!id) throw new Error("Video ID is required.");
-  await deleteDoc(doc(db, COLLECTION, id));
+  return snapshot.docs.map((doc) => ({
+    id: doc.id,
+    ...(doc.data() as any),
+  }));
 }

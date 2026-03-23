@@ -1,83 +1,60 @@
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+"use client";
 
-const COLLECTION = "videoHistory";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/components/providers/auth-provider";
+import { getUserVideos, VideoItem } from "@/lib/video-history-service";
 
-export type VideoHistoryItem = {
-  id: string;
-  userId: string;
-  title: string;
-  videoUrl: string;
-  filename?: string;
-  duration?: number;
-  fps?: number;
-  imageName?: string;
-  createdAt?: any;
-};
+export default function HistoryPage() {
+  const { user } = useAuth();
+  const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
-export async function saveVideoHistory(data: {
-  userId: string;
-  title: string;
-  videoUrl: string;
-  filename?: string;
-  duration?: number;
-  fps?: number;
-  imageName?: string;
-}) {
-  if (!data.userId) throw new Error("User ID is required.");
-  if (!data.videoUrl) throw new Error("Video URL is required.");
+  useEffect(() => {
+    async function load() {
+      if (!user?.uid) return;
 
-  await addDoc(collection(db, COLLECTION), {
-    userId: data.userId,
-    title: data.title?.trim() || "Untitled Video",
-    videoUrl: data.videoUrl,
-    filename: data.filename || "",
-    duration: data.duration || 0,
-    fps: data.fps || 0,
-    imageName: data.imageName || "",
-    createdAt: serverTimestamp(),
-  });
-}
+      const data = await getUserVideos(user.uid);
+      setVideos(data);
+      setLoading(false);
+    }
 
-export async function getUserVideoHistory(userId: string) {
-  if (!userId) return [];
+    load();
+  }, [user]);
 
-  const q = query(
-    collection(db, COLLECTION),
-    where("userId", "==", userId),
-    orderBy("createdAt", "desc")
+  if (loading) {
+    return <div className="p-6 text-white">Loading...</div>;
+  }
+
+  return (
+    <main className="min-h-screen bg-black text-white px-6 py-10">
+      <h1 className="text-3xl font-bold mb-6">Your Videos</h1>
+
+      {videos.length === 0 ? (
+        <p>No videos yet.</p>
+      ) : (
+        <div className="grid md:grid-cols-2 gap-6">
+          {videos.map((video) => (
+            <div
+              key={video.id}
+              className="bg-zinc-900 p-4 rounded-xl border border-zinc-800"
+            >
+              <video
+                src={video.videoUrl}
+                controls
+                className="w-full rounded-lg mb-3"
+              />
+
+              <p className="text-sm text-gray-400">
+                {video.prompt || "No prompt"}
+              </p>
+
+              <p className="text-xs text-gray-500 mt-1">
+                {video.language} • {video.duration}s
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </main>
   );
-
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((item) => {
-    const data = item.data();
-
-    return {
-      id: item.id,
-      userId: data.userId || "",
-      title: data.title || "Untitled Video",
-      videoUrl: data.videoUrl || "",
-      filename: data.filename || "",
-      duration: data.duration || 0,
-      fps: data.fps || 0,
-      imageName: data.imageName || "",
-      createdAt: data.createdAt,
-    } as VideoHistoryItem;
-  });
-}
-
-export async function deleteVideoHistory(id: string) {
-  if (!id) throw new Error("Video ID is required.");
-  await deleteDoc(doc(db, COLLECTION, id));
 }

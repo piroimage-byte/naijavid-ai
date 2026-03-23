@@ -1,64 +1,83 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { PRO_PLAN_AMOUNT_KOBO, generateReference } from "@/lib/paystack";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const email = String(body.email || "").trim();
+    const uid = String(body.uid || "").trim();
 
-    const { email, userId, plan } = body;
-
-    if (!email || !userId || !plan) {
+    if (!email || !uid) {
       return NextResponse.json(
-        { error: "Missing required fields." },
+        { success: false, error: "Email and uid are required." },
         { status: 400 }
       );
     }
 
-    const amount =
-      plan === "PRO"
-        ? 2000000 // ₦20,000 (kobo)
-        : 750000; // ₦7,500
-
     const secretKey = process.env.PAYSTACK_SECRET_KEY;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
 
     if (!secretKey) {
       return NextResponse.json(
-        { error: "Missing PAYSTACK_SECRET_KEY." },
+        { success: false, error: "Missing PAYSTACK_SECRET_KEY." },
         { status: 500 }
       );
     }
 
-    const response = await fetch("https://api.paystack.co/transaction/initialize", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        amount,
-        callback_url: `http://localhost:3000/pricing`,
-        metadata: {
-          userId,
-          plan,
-        },
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
+    if (!appUrl) {
       return NextResponse.json(
-        { error: data?.message || "Paystack init failed." },
+        { success: false, error: "Missing NEXT_PUBLIC_APP_URL." },
+        { status: 500 }
+      );
+    }
+
+    const reference = generateReference(uid);
+
+    const paystackResponse = await fetch(
+      "https://api.paystack.co/transaction/initialize",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          amount: PRO_PLAN_AMOUNT_KOBO,
+          reference,
+          callback_url: `${appUrl}/pricing/callback`,
+          metadata: {
+            uid,
+            plan: "pro",
+            source: "naijavid-ai",
+          },
+        }),
+        cache: "no-store",
+      }
+    );
+
+    const result = await paystackResponse.json();
+
+    if (!paystackResponse.ok || !result.status) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: result.message || "Failed to initialize payment.",
+          details: result,
+        },
         { status: 500 }
       );
     }
 
     return NextResponse.json({
-      authorization_url: data.data.authorization_url,
+      success: true,
+      authorization_url: result.data.authorization_url,
+      access_code: result.data.access_code,
+      reference: result.data.reference,
     });
-  } catch (error: any) {
+  } catch (error) {
     return NextResponse.json(
-      { error: error?.message || "Initialization failed." },
+      { success: false, error: "Failed to initialize Paystack payment." },
       { status: 500 }
     );
   }

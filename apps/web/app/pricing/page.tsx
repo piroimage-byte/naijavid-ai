@@ -1,115 +1,148 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "../../components/providers/auth-provider";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/components/providers/auth-provider";
+import { getUserPlan, type UserPlan } from "@/lib/user-service";
 
 export default function PricingPage() {
-  const router = useRouter();
-  const { user, loading } = useAuth();
-
-  const [submitting, setSubmitting] = useState<string | null>(null);
+  const { user, loading: authLoading } = useAuth();
+  const [plan, setPlan] = useState<UserPlan>("free");
+  const [loading, setLoading] = useState(true);
+  const [startingPayment, setStartingPayment] = useState(false);
   const [message, setMessage] = useState("");
 
-  async function handleSelect(plan: "FREE" | "BASIC" | "PRO") {
-    if (!user) {
-      alert("Please sign in first.");
+  useEffect(() => {
+    async function loadPlan() {
+      if (!user?.uid) {
+        setPlan("free");
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const currentPlan = await getUserPlan(user.uid);
+        setPlan(currentPlan);
+      } catch {
+        setPlan("free");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadPlan();
+  }, [user]);
+
+  async function handleUpgrade() {
+    if (!user?.uid || !user.email) {
+      setMessage("Please log in with a valid email first.");
       return;
     }
 
     try {
-      setSubmitting(plan);
+      setStartingPayment(true);
       setMessage("");
 
-      // temporary logic (no backend yet)
-      await new Promise((res) => setTimeout(res, 1000));
+      const response = await fetch("/api/paystack/initialize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          uid: user.uid,
+          email: user.email,
+        }),
+      });
 
-      setMessage(`You selected ${plan} plan (mock).`);
+      const result = await response.json();
 
-      if (plan !== "FREE") {
-        alert("Payment integration (Paystack) will be added next.");
+      if (!result.success || !result.authorization_url) {
+        setMessage(result.error || "Failed to start payment.");
+        return;
       }
 
-      router.push("/dashboard");
-    } catch (err: any) {
-      setMessage(err?.message || "Something went wrong.");
+      window.location.href = result.authorization_url;
+    } catch {
+      setMessage("Unable to initialize payment.");
     } finally {
-      setSubmitting(null);
+      setStartingPayment(false);
     }
   }
 
+  if (authLoading || loading) {
+    return (
+      <main className="min-h-screen bg-black text-white px-6 py-10">
+        <div className="max-w-5xl mx-auto">Loading...</div>
+      </main>
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-black px-6 py-16 text-white">
-      <div className="mx-auto max-w-5xl">
-        <h1 className="mb-4 text-4xl font-bold">Pricing</h1>
-        <p className="mb-10 text-white/70">
-          Choose a plan to generate AI videos.
-        </p>
-
-        {loading && <p>Checking account...</p>}
-
-        {!loading && !user && (
-          <p className="mb-6 text-red-400">
-            You must sign in before selecting a plan.
+    <main className="min-h-screen bg-black text-white px-6 py-10">
+      <div className="max-w-5xl mx-auto space-y-8">
+        <div>
+          <h1 className="text-3xl font-bold">Pricing</h1>
+          <p className="text-sm text-gray-400 mt-2">
+            Choose the plan that fits your video generation needs.
           </p>
-        )}
+          <p className="text-sm text-gray-300 mt-3">
+            Current plan: <span className="font-semibold uppercase">{plan}</span>
+          </p>
+        </div>
 
-        {message && (
-          <div className="mb-6 rounded border border-white/20 p-4">
+        <div className="grid md:grid-cols-2 gap-6">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
+            <h2 className="text-2xl font-bold mb-2">Free</h2>
+            <p className="text-gray-400 mb-6">Start and test the platform.</p>
+            <div className="text-3xl font-bold mb-6">₦0</div>
+
+            <div className="space-y-3 text-sm text-gray-300">
+              <p>5-second video generation</p>
+              <p>Basic prompt workflow</p>
+              <p>History page access</p>
+              <p>Watermarked output</p>
+            </div>
+
+            <button
+              type="button"
+              disabled
+              className="mt-8 w-full rounded-xl bg-zinc-700 text-white font-semibold px-5 py-3 opacity-70"
+            >
+              Current or Default Plan
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-white bg-zinc-900 p-6">
+            <h2 className="text-2xl font-bold mb-2">Pro</h2>
+            <p className="text-gray-400 mb-6">For serious creators and teams.</p>
+            <div className="text-3xl font-bold mb-6">₦5,000/month</div>
+
+            <div className="space-y-3 text-sm text-gray-300">
+              <p>10-second video generation</p>
+              <p>Priority access to premium features</p>
+              <p>Better workflow for commercial use</p>
+              <p>Future advanced generation tools</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleUpgrade}
+              disabled={startingPayment || plan === "pro"}
+              className="mt-8 w-full rounded-xl bg-white text-black font-semibold px-5 py-3 disabled:opacity-60"
+            >
+              {plan === "pro"
+                ? "Already on Pro"
+                : startingPayment
+                ? "Redirecting..."
+                : "Upgrade to Pro"}
+            </button>
+          </div>
+        </div>
+
+        {message ? (
+          <div className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm">
             {message}
           </div>
-        )}
-
-        <div className="grid gap-6 md:grid-cols-3">
-          {/* FREE */}
-          <div className="rounded border border-white/10 p-6">
-            <h2 className="text-xl font-bold">Free</h2>
-            <p className="mt-2 text-white/70">Basic access</p>
-
-            <button
-              onClick={() => handleSelect("FREE")}
-              disabled={submitting === "FREE"}
-              className="mt-6 w-full rounded bg-white px-4 py-2 text-black"
-            >
-              {submitting === "FREE" ? "Processing..." : "Start Free"}
-            </button>
-          </div>
-
-          {/* BASIC */}
-          <div className="rounded border border-white/10 p-6">
-            <h2 className="text-xl font-bold">Basic</h2>
-            <p className="mt-2 text-white/70">More videos</p>
-
-            <button
-              onClick={() => handleSelect("BASIC")}
-              disabled={submitting === "BASIC"}
-              className="mt-6 w-full rounded bg-white px-4 py-2 text-black"
-            >
-              {submitting === "BASIC" ? "Processing..." : "Choose Basic"}
-            </button>
-          </div>
-
-          {/* PRO */}
-          <div className="rounded border border-white/10 p-6">
-            <h2 className="text-xl font-bold">Pro</h2>
-            <p className="mt-2 text-white/70">Unlimited access</p>
-
-            <button
-              onClick={() => handleSelect("PRO")}
-              disabled={submitting === "PRO"}
-              className="mt-6 w-full rounded bg-white px-4 py-2 text-black"
-            >
-              {submitting === "PRO" ? "Processing..." : "Go Pro"}
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-10">
-          <Link href="/" className="text-white/70 underline">
-            ← Back Home
-          </Link>
-        </div>
+        ) : null}
       </div>
     </main>
   );
