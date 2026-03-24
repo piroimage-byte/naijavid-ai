@@ -1,10 +1,9 @@
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field
 
 app = FastAPI(title="Naijavid AI Backend")
 
@@ -26,16 +25,6 @@ GENERATED_DIR.mkdir(exist_ok=True)
 app.mount("/generated", StaticFiles(directory=str(GENERATED_DIR)), name="generated")
 
 
-class GenerateRequest(BaseModel):
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
-
-    prompt: Optional[str] = None
-    text: Optional[str] = None
-    language: Optional[str] = "English"
-    duration: Optional[Any] = "5 seconds"
-    watermark: Optional[str] = "naijavid.ai"
-
-
 @app.get("/")
 def root():
     return {"message": "Naijavid AI backend is running", "status": "ok"}
@@ -47,18 +36,36 @@ def health():
 
 
 @app.post("/generate")
-def generate_video(payload: GenerateRequest):
+async def generate_video(request: Request):
     try:
-        prompt = (payload.prompt or payload.text or "").strip()
+        payload: dict[str, Any] = await request.json()
+
+        prompt = str(
+            payload.get("prompt")
+            or payload.get("text")
+            or payload.get("script")
+            or payload.get("idea")
+            or ""
+        ).strip()
 
         if not prompt:
             raise HTTPException(status_code=400, detail="Prompt is required.")
 
-        duration_value = payload.duration
-        if isinstance(duration_value, (int, float)):
-            duration_text = f"{int(duration_value)} seconds"
+        language = str(payload.get("language") or "English").strip()
+
+        duration_raw = (
+            payload.get("duration")
+            or payload.get("length")
+            or payload.get("seconds")
+            or "5 seconds"
+        )
+
+        if isinstance(duration_raw, (int, float)):
+            duration = f"{int(duration_raw)} seconds"
         else:
-            duration_text = str(duration_value or "5 seconds")
+            duration = str(duration_raw).strip() or "5 seconds"
+
+        watermark = str(payload.get("watermark") or "naijavid.ai").strip()
 
         return {
             "success": True,
@@ -66,9 +73,10 @@ def generate_video(payload: GenerateRequest):
             "video_url": None,
             "data": {
                 "prompt": prompt,
-                "language": payload.language or "English",
-                "duration": duration_text,
-                "watermark": payload.watermark or "naijavid.ai",
+                "language": language,
+                "duration": duration,
+                "watermark": watermark,
+                "raw_payload": payload,
             },
         }
 
