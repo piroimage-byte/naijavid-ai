@@ -5,6 +5,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from generate import create_video
+
 app = FastAPI(title="Naijavid AI Backend")
 
 app.add_middleware(
@@ -61,22 +63,38 @@ async def generate_video(request: Request):
         )
 
         if isinstance(duration_raw, (int, float)):
-            duration = f"{int(duration_raw)} seconds"
+            duration_seconds = int(duration_raw)
         else:
-            duration = str(duration_raw).strip() or "5 seconds"
+            duration_text = str(duration_raw).strip().lower()
+            digits = "".join(ch for ch in duration_text if ch.isdigit())
+            duration_seconds = int(digits) if digits else 5
+
+        if duration_seconds <= 0:
+            duration_seconds = 5
 
         watermark = str(payload.get("watermark") or "naijavid.ai").strip()
 
+        filename = create_video(
+            prompt=prompt,
+            duration_seconds=duration_seconds,
+            watermark=watermark,
+            language=language,
+        )
+
+        if not filename:
+            raise HTTPException(status_code=500, detail="Video generation failed.")
+
+        video_url = f"https://naijavid-ai.onrender.com/generated/{filename}"
+
         return {
             "success": True,
-            "message": "Generation request received successfully.",
-            "video_url": None,
+            "message": "Video generated successfully.",
+            "video_url": video_url,
             "data": {
                 "prompt": prompt,
                 "language": language,
-                "duration": duration,
+                "duration_seconds": duration_seconds,
                 "watermark": watermark,
-                "raw_payload": payload,
             },
         }
 
