@@ -1,59 +1,105 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAuth } from "@/components/providers/auth-provider";
-import { getUserVideos, VideoItem } from "@/lib/video-history-service";
+
+type VideoItem = {
+  id: string;
+  url: string;
+  createdAt: number;
+};
 
 export default function HistoryPage() {
-  const { user } = useAuth();
   const [videos, setVideos] = useState<VideoItem[]>([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function load() {
-      if (!user?.uid) return;
-
-      const data = await getUserVideos(user.uid);
-      setVideos(data);
-      setLoading(false);
+    try {
+      const stored = localStorage.getItem("video_history");
+      if (stored) {
+        setVideos(JSON.parse(stored));
+      }
+    } catch (err) {
+      console.error("Failed to load history:", err);
     }
+  }, []);
 
-    load();
-  }, [user]);
-
-  if (loading) {
-    return <div className="p-6 text-white">Loading...</div>;
+  function clearHistory() {
+    localStorage.removeItem("video_history");
+    setVideos([]);
   }
 
   return (
-    <main className="min-h-screen bg-black text-white px-6 py-10">
-      <h1 className="text-3xl font-bold mb-6">Your Videos</h1>
+    <main style={{ padding: 20 }}>
+      <h1 style={{ fontSize: 24, fontWeight: "bold" }}>
+        Video History
+      </h1>
 
-      {videos.length === 0 ? (
-        <p>No videos yet.</p>
-      ) : (
-        <div className="grid md:grid-cols-2 gap-6">
-          {videos.map((video) => (
-            <div
-              key={video.id}
-              className="bg-zinc-900 p-4 rounded-xl border border-zinc-800"
-            >
-              <video
-                src={video.videoUrl}
-                controls
-                className="w-full rounded-lg mb-3"
-              />
+      {videos.length === 0 && (
+        <p style={{ marginTop: 20 }}>
+          No videos generated yet.
+        </p>
+      )}
 
-              <p className="text-sm text-gray-400">
-                {video.prompt || "No prompt"}
-              </p>
+      {videos.length > 0 && (
+        <>
+          <button
+            onClick={clearHistory}
+            style={{
+              marginTop: 10,
+              marginBottom: 20,
+              padding: "8px 16px",
+              background: "red",
+              color: "white",
+              border: "none",
+              borderRadius: 4,
+              cursor: "pointer",
+            }}
+          >
+            Clear History
+          </button>
 
-              <p className="text-xs text-gray-500 mt-1">
-                {video.language} • {video.duration}s
-              </p>
-            </div>
-          ))}
-        </div>
+          <div
+            style={{
+              display: "grid",
+              gap: 20,
+            }}
+          >
+            {videos.map((video) => (
+              <div
+                key={video.id}
+                style={{
+                  border: "1px solid #ccc",
+                  padding: 10,
+                  borderRadius: 6,
+                }}
+              >
+                <video
+                  src={video.url}
+                  controls
+                  style={{
+                    width: "100%",
+                    borderRadius: 6,
+                  }}
+                />
+
+                <p style={{ fontSize: 12, marginTop: 8 }}>
+                  {new Date(video.createdAt).toLocaleString()}
+                </p>
+
+                <a
+                  href={video.url}
+                  download
+                  style={{
+                    display: "inline-block",
+                    marginTop: 8,
+                    color: "blue",
+                  }}
+                >
+                  Download
+                </a>
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </main>
   );
