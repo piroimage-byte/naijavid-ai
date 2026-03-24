@@ -66,7 +66,7 @@ def generate_video(payload: GenerateRequest = Body(...)):
 
         clip.write_videofile(str(filepath), fps=24, audio=False)
 
-        video_url = f"https://naijavid-ai.onrender.com/video/{filename}"
+        video_url = f"https://naijavid-ai-new.onrender.com/video/{filename}"
 
         return {
             "success": True,

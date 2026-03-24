@@ -1,54 +1,89 @@
 import {
   addDoc,
   collection,
-  serverTimestamp,
+  deleteDoc,
+  doc,
   getDocs,
   query,
-  orderBy,
+  serverTimestamp,
   where,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-const COLLECTION = "videos";
-
-export type VideoItem = {
+export type VideoHistoryItem = {
   id: string;
-  userId: string;
+  uid: string;
+  prompt: string;
+  language: string;
+  duration: number;
+  watermark: string;
   videoUrl: string;
-  prompt?: string;
-  language?: string;
-  duration?: number;
+  createdAtMs: number;
   createdAt?: any;
 };
 
-export async function saveVideo(data: {
-  userId: string;
+const COLLECTION_NAME = "video_history";
+
+export async function saveVideoHistory(input: {
+  uid: string;
+  prompt: string;
+  language: string;
+  duration: number;
+  watermark: string;
   videoUrl: string;
-  prompt?: string;
-  language?: string;
-  duration?: number;
 }) {
-  await addDoc(collection(db, COLLECTION), {
-    userId: data.userId,
-    videoUrl: data.videoUrl,
-    prompt: data.prompt || "",
-    language: data.language || "",
-    duration: data.duration || 5,
+  const payload = {
+    uid: input.uid,
+    prompt: input.prompt,
+    language: input.language,
+    duration: input.duration,
+    watermark: input.watermark,
+    videoUrl: input.videoUrl,
     createdAt: serverTimestamp(),
-  });
+    createdAtMs: Date.now(),
+  };
+
+  const ref = await addDoc(collection(db, COLLECTION_NAME), payload);
+  return ref.id;
 }
 
-export async function getUserVideos(userId: string) {
-  const q = query(
-    collection(db, COLLECTION),
-    where("userId", "==", userId),
-    orderBy("createdAt", "desc")
-  );
-
+export async function getVideoHistory(uid: string): Promise<VideoHistoryItem[]> {
+  const q = query(collection(db, COLLECTION_NAME), where("uid", "==", uid));
   const snapshot = await getDocs(q);
 
-  return snapshot.docs.map((doc) => ({
-    id: doc.id,
-    ...(doc.data() as any),
-  }));
+  const items: VideoHistoryItem[] = snapshot.docs.map((item) => {
+    const data = item.data();
+
+    return {
+      id: item.id,
+      uid: String(data.uid || ""),
+      prompt: String(data.prompt || ""),
+      language: String(data.language || "English"),
+      duration: Number(data.duration || 5),
+      watermark: String(data.watermark || "naijavid.ai"),
+      videoUrl: String(data.videoUrl || ""),
+      createdAtMs: Number(data.createdAtMs || 0),
+      createdAt: data.createdAt,
+    };
+  });
+
+  items.sort((a, b) => b.createdAtMs - a.createdAtMs);
+  return items;
+}
+
+export async function deleteVideoHistoryItem(id: string) {
+  await deleteDoc(doc(db, COLLECTION_NAME, id));
+}
+
+export async function clearVideoHistory(uid: string) {
+  const q = query(collection(db, COLLECTION_NAME), where("uid", "==", uid));
+  const snapshot = await getDocs(q);
+
+  const batch = writeBatch(db);
+  snapshot.docs.forEach((item) => {
+    batch.delete(doc(db, COLLECTION_NAME, item.id));
+  });
+
+  await batch.commit();
 }
