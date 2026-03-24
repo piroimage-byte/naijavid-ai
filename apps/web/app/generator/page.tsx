@@ -6,12 +6,20 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { saveVideoHistory } from "@/lib/video-history-service";
 
+type Mode = "text" | "image";
+
 export default function GeneratorPage() {
   const [user, setUser] = useState<User | null>(null);
+
+  const [mode, setMode] = useState<Mode>("text");
+
   const [prompt, setPrompt] = useState("");
   const [language, setLanguage] = useState("English");
   const [duration, setDuration] = useState("5");
   const [watermark, setWatermark] = useState("naijavid.ai");
+
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+
   const [videoUrl, setVideoUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -25,17 +33,55 @@ export default function GeneratorPage() {
     return () => unsub();
   }, []);
 
-  async function handleGenerate() {
-    try {
-      setLoading(true);
-      setError("");
-      setSaveMessage("");
-      setVideoUrl("");
+  function resetMessages() {
+    setError("");
+    setSaveMessage("");
+    setVideoUrl("");
+  }
 
-      const apiUrl =
-        process.env.NEXT_PUBLIC_API_URL ||
-        process.env.NEXT_PUBLIC_BACKEND_URL ||
-        "";
+  function getApiUrl() {
+    return (
+      process.env.NEXT_PUBLIC_API_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      ""
+    );
+  }
+
+  async function saveHistory(params: {
+    prompt: string;
+    language: string;
+    duration: number;
+    watermark: string;
+    videoUrl: string;
+  }) {
+    if (!user?.uid) {
+      setSaveMessage("Video generated. Sign in to save history.");
+      return;
+    }
+
+    await saveVideoHistory({
+      uid: user.uid,
+      prompt: params.prompt,
+      language: params.language,
+      duration: params.duration,
+      watermark: params.watermark,
+      videoUrl: params.videoUrl,
+    });
+
+    setSaveMessage("Video saved to history.");
+  }
+
+  async function handleGenerateText() {
+    try {
+      if (!prompt.trim()) {
+        setError("Please enter a prompt.");
+        return;
+      }
+
+      setLoading(true);
+      resetMessages();
+
+      const apiUrl = getApiUrl();
 
       const response = await fetch(`${apiUrl}/generate`, {
         method: "POST",
@@ -51,7 +97,7 @@ export default function GeneratorPage() {
       });
 
       const result = await response.json();
-      console.log("API RESPONSE:", result);
+      console.log("TEXT API RESPONSE:", result);
 
       if (!response.ok) {
         throw new Error(result?.detail || "Failed to generate video.");
@@ -63,20 +109,13 @@ export default function GeneratorPage() {
 
       setVideoUrl(result.video_url);
 
-      if (user?.uid) {
-        await saveVideoHistory({
-          uid: user.uid,
-          prompt,
-          language,
-          duration: Number(duration),
-          watermark,
-          videoUrl: result.video_url,
-        });
-
-        setSaveMessage("Video saved to history.");
-      } else {
-        setSaveMessage("Video generated. Sign in to save history.");
-      }
+      await saveHistory({
+        prompt,
+        language,
+        duration: Number(duration),
+        watermark,
+        videoUrl: result.video_url,
+      });
     } catch (err: any) {
       setError(err?.message || "Something went wrong while generating the video.");
     } finally {
@@ -84,13 +123,88 @@ export default function GeneratorPage() {
     }
   }
 
+  async function handleGenerateFromImage() {
+    try {
+      if (!selectedImage) {
+        setError("Please choose an image first.");
+        return;
+      }
+
+      setLoading(true);
+      resetMessages();
+
+      const apiUrl = getApiUrl();
+
+      const formData = new FormData();
+      formData.append("file", selectedImage);
+
+      const response = await fetch(`${apiUrl}/generate-from-image`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await response.json();
+      console.log("IMAGE API RESPONSE:", result);
+
+      if (!response.ok) {
+        throw new Error(result?.detail || "Failed to generate video from image.");
+      }
+
+      if (!result?.video_url) {
+        throw new Error("No video returned from server.");
+      }
+
+      setVideoUrl(result.video_url);
+
+      await saveHistory({
+        prompt: selectedImage.name,
+        language: "Image to Video",
+        duration: 5,
+        watermark,
+        videoUrl: result.video_url,
+      });
+    } catch (err: any) {
+      setError(
+        err?.message || "Something went wrong while generating from image."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGenerate() {
+    if (mode === "text") {
+      await handleGenerateText();
+      return;
+    }
+
+    await handleGenerateFromImage();
+  }
+
   return (
-    <main style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 20px 60px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "center", marginBottom: 24 }}>
+    <main
+      style={{
+        maxWidth: 1100,
+        margin: "0 auto",
+        padding: "32px 20px 60px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 16,
+          alignItems: "center",
+          marginBottom: 24,
+          flexWrap: "wrap",
+        }}
+      >
         <div>
-          <h1 style={{ fontSize: 44, fontWeight: 800, margin: 0 }}>NaijaVid AI Generator</h1>
+          <h1 style={{ fontSize: 44, fontWeight: 800, margin: 0 }}>
+            NaijaVid AI Generator
+          </h1>
           <p style={{ color: "#b8b8b8", marginTop: 8 }}>
-            Create short demo videos in Nigerian local language style.
+            Generate short videos from text or images.
           </p>
         </div>
 
@@ -120,24 +234,83 @@ export default function GeneratorPage() {
           background: "#121216",
         }}
       >
-        <label>
-          <div style={{ marginBottom: 8, fontWeight: 700 }}>Prompt</div>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            rows={6}
-            placeholder="Describe the video you want to generate..."
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => setMode("text")}
             style={{
-              width: "100%",
-              padding: 16,
+              padding: "10px 14px",
               borderRadius: 12,
-              background: "#000",
-              color: "#fff",
               border: "1px solid #444",
-              resize: "vertical",
+              cursor: "pointer",
+              fontWeight: 700,
+              opacity: mode === "text" ? 1 : 0.75,
             }}
-          />
-        </label>
+          >
+            Text to Video
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMode("image")}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              border: "1px solid #444",
+              cursor: "pointer",
+              fontWeight: 700,
+              opacity: mode === "image" ? 1 : 0.75,
+            }}
+          >
+            Image to Video
+          </button>
+        </div>
+
+        {mode === "text" ? (
+          <label>
+            <div style={{ marginBottom: 8, fontWeight: 700 }}>Prompt</div>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={6}
+              placeholder="Describe the video you want to generate..."
+              style={{
+                width: "100%",
+                padding: 16,
+                borderRadius: 12,
+                background: "#000",
+                color: "#fff",
+                border: "1px solid #444",
+                resize: "vertical",
+              }}
+            />
+          </label>
+        ) : (
+          <label>
+            <div style={{ marginBottom: 8, fontWeight: 700 }}>Upload Image</div>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                setSelectedImage(file);
+              }}
+              style={{
+                width: "100%",
+                padding: 14,
+                borderRadius: 12,
+                background: "#000",
+                color: "#fff",
+                border: "1px solid #444",
+              }}
+            />
+            {selectedImage && (
+              <div style={{ marginTop: 8, color: "#b8b8b8" }}>
+                Selected: {selectedImage.name}
+              </div>
+            )}
+          </label>
+        )}
 
         <div
           style={{
@@ -151,6 +324,7 @@ export default function GeneratorPage() {
             <select
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
+              disabled={mode === "image"}
               style={{
                 width: "100%",
                 padding: 14,
@@ -158,6 +332,7 @@ export default function GeneratorPage() {
                 background: "#000",
                 color: "#fff",
                 border: "1px solid #444",
+                opacity: mode === "image" ? 0.65 : 1,
               }}
             >
               <option value="English">English</option>
@@ -173,6 +348,7 @@ export default function GeneratorPage() {
             <select
               value={duration}
               onChange={(e) => setDuration(e.target.value)}
+              disabled={mode === "image"}
               style={{
                 width: "100%",
                 padding: 14,
@@ -180,6 +356,7 @@ export default function GeneratorPage() {
                 background: "#000",
                 color: "#fff",
                 border: "1px solid #444",
+                opacity: mode === "image" ? 0.65 : 1,
               }}
             >
               <option value="5">5 seconds</option>
@@ -206,7 +383,9 @@ export default function GeneratorPage() {
 
         <button
           onClick={handleGenerate}
-          disabled={loading || !prompt.trim()}
+          disabled={
+            loading || (mode === "text" ? !prompt.trim() : !selectedImage)
+          }
           style={{
             padding: "18px",
             borderRadius: 14,
@@ -216,7 +395,11 @@ export default function GeneratorPage() {
             cursor: loading ? "default" : "pointer",
           }}
         >
-          {loading ? "Generating..." : "Generate Video"}
+          {loading
+            ? "Generating..."
+            : mode === "text"
+            ? "Generate Video"
+            : "Generate From Image"}
         </button>
 
         {error && (
@@ -255,10 +438,14 @@ export default function GeneratorPage() {
           background: "#121216",
         }}
       >
-        <h2 style={{ fontSize: 22, marginTop: 0, marginBottom: 16 }}>Preview</h2>
+        <h2 style={{ fontSize: 22, marginTop: 0, marginBottom: 16 }}>
+          Preview
+        </h2>
 
         {!videoUrl && (
-          <p style={{ color: "#a9a9a9" }}>Your generated video will appear here.</p>
+          <p style={{ color: "#a9a9a9" }}>
+            Your generated video will appear here.
+          </p>
         )}
 
         {videoUrl && (
@@ -274,9 +461,19 @@ export default function GeneratorPage() {
               }}
             />
 
-            <div style={{ marginTop: 14 }}>
+            <div
+              style={{
+                marginTop: 14,
+                display: "flex",
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
               <a href={videoUrl} target="_blank" rel="noreferrer">
                 Open video
+              </a>
+              <a href={videoUrl} download>
+                Download video
               </a>
             </div>
           </div>

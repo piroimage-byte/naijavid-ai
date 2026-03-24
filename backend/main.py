@@ -1,11 +1,11 @@
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from moviepy.editor import TextClip
-import os
+from moviepy.editor import TextClip, ImageClip
 import uuid
+import os
 
 app = FastAPI(title="Naijavid AI Backend")
 
@@ -22,7 +22,10 @@ app.add_middleware(
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "generated_videos"
+TEMP_DIR = BASE_DIR / "temp_uploads"
+
 OUTPUT_DIR.mkdir(exist_ok=True)
+TEMP_DIR.mkdir(exist_ok=True)
 
 
 class GenerateRequest(BaseModel):
@@ -71,6 +74,56 @@ def generate_video(payload: GenerateRequest = Body(...)):
         return {
             "success": True,
             "message": "Video generated successfully.",
+            "video_url": video_url,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/generate-from-image")
+async def generate_from_image(
+    file: UploadFile = File(...),
+):
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Image file is required.")
+
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
+            raise HTTPException(status_code=400, detail="Unsupported image format.")
+
+        temp_name = f"{uuid.uuid4().hex}{ext}"
+        temp_path = TEMP_DIR / temp_name
+
+        with open(temp_path, "wb") as f:
+            f.write(await file.read())
+
+        output_name = f"{uuid.uuid4().hex}.mp4"
+        output_path = OUTPUT_DIR / output_name
+
+        clip = ImageClip(str(temp_path)).set_duration(5)
+        clip = clip.resize(height=1280)
+
+        if clip.w > 720:
+            clip = clip.crop(x_center=clip.w / 2, width=720)
+        else:
+            clip = clip.resize(width=720)
+
+        clip.write_videofile(str(output_path), fps=24, audio=False)
+
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
+
+        video_url = f"https://naijavid-ai-new.onrender.com/video/{output_name}"
+
+        return {
+            "success": True,
+            "message": "Image video generated successfully.",
             "video_url": video_url,
         }
 
