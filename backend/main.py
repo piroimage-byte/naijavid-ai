@@ -84,9 +84,7 @@ def generate_video(payload: GenerateRequest = Body(...)):
 
 
 @app.post("/generate-from-image")
-async def generate_from_image(
-    file: UploadFile = File(...),
-):
+async def generate_from_image(file: UploadFile = File(...)):
     try:
         if not file.filename:
             raise HTTPException(status_code=400, detail="Image file is required.")
