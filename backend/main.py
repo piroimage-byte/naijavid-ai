@@ -1,72 +1,73 @@
-import os
-import traceback
-from fastapi import FastAPI
+from pathlib import Path
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from generate import generate_video
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-GENERATED_DIR = os.path.join(BASE_DIR, "generated")
+app = FastAPI(title="Naijavid AI Backend")
 
-app = FastAPI()
-
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://naijavid-ai.vercel.app",
         "http://localhost:3000",
-        "http://127.0.0.1:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-os.makedirs(GENERATED_DIR, exist_ok=True)
-app.mount("/generated", StaticFiles(directory=GENERATED_DIR), name="generated")
+# Generated files folder
+BASE_DIR = Path(__file__).resolve().parent
+GENERATED_DIR = BASE_DIR / "generated"
+GENERATED_DIR.mkdir(exist_ok=True)
+
+app.mount("/generated", StaticFiles(directory=str(GENERATED_DIR)), name="generated")
 
 
 class GenerateRequest(BaseModel):
     prompt: str
-    duration: int = 5
     language: str = "English"
-    watermark: str = "naijavid.ai"
+    duration: str = "5 seconds"
+    watermark: Optional[str] = "naijavid.ai"
 
 
 @app.get("/")
 def root():
-    return {"message": "NaijaVid AI backend is running"}
+    return {"message": "Naijavid AI backend is running", "status": "ok"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 @app.post("/generate")
-def create_video(payload: GenerateRequest):
-    prompt = payload.prompt.strip()
-
-    if not prompt:
-        return {
-            "success": False,
-            "error": "Prompt is required."
-        }
-
+def generate_video(payload: GenerateRequest):
     try:
-        filename = generate_video(
-            prompt=prompt,
-            duration=payload.duration,
-            language=payload.language,
-            watermark=payload.watermark,
-        )
+        prompt = payload.prompt.strip()
 
-        video_url = f"http://127.0.0.1:8000/generated/{filename}"
+        if not prompt:
+            raise HTTPException(status_code=400, detail="Prompt is required.")
 
+        # Demo response for now.
+        # Replace this section later with your real video generation logic.
         return {
             "success": True,
-            "filename": filename,
-            "videoUrl": video_url,
+            "message": "Generation request received successfully.",
+            "video_url": None,
+            "data": {
+                "prompt": payload.prompt,
+                "language": payload.language,
+                "duration": payload.duration,
+                "watermark": payload.watermark,
+            },
         }
 
-    except Exception as e:
-        traceback.print_exc()
-        return {
-            "success": False,
-            "error": f"{type(e).__name__}: {str(e)}"
-        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Generation failed: {str(exc)}")
