@@ -5,5 +5,7 @@ moviepy==1.0.3
 imageio
 imageio-ffmpeg
 numpy
-pillow==9.5.0
+pillow==10.3.0
 python-multipart
+setuptools
+wheel
