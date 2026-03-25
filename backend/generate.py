@@ -116,7 +116,7 @@ def draw_centered_multiline_text(
     watermark_x = (VIDEO_WIDTH - watermark_width) // 2
     draw.text((watermark_x, y), watermark, font=watermark_font, fill=(255, 255, 255))
 
-    return image
+    return image 
 
 
 def fit_image_to_canvas(source: Image.Image) -> Image.Image:
