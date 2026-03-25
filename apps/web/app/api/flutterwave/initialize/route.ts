@@ -1,0 +1,50 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createFlutterwavePaymentLink } from "@/lib/flutterwave";
+
+function generateTxRef(userId: string) {
+  return `naijavid_${userId}_${Date.now()}`;
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+
+    const userId = String(body.userId || "").trim();
+    const email = String(body.email || "").trim();
+    const name = String(body.name || "User").trim();
+    const phone = String(body.phone || "").trim();
+
+    if (!userId || !email) {
+      return NextResponse.json(
+        { error: "userId and email are required." },
+        { status: 400 }
+      );
+    }
+
+    const amount = 5000; // NGN example for Pro plan
+    const tx_ref = generateTxRef(userId);
+
+    const redirect_url = `${process.env.NEXT_PUBLIC_APP_URL}/payment/flutterwave/callback`;
+
+    const payment = await createFlutterwavePaymentLink({
+      amount,
+      email,
+      name,
+      phone,
+      tx_ref,
+      redirect_url,
+      currency: "NGN",
+    });
+
+    return NextResponse.json({
+      message: "Payment initialized successfully.",
+      checkoutLink: payment?.data?.link,
+      tx_ref,
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Initialization failed." },
+      { status: 500 }
+    );
+  }
+}

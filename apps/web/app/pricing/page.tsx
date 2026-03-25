@@ -1,149 +1,137 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useAuth } from "@/components/providers/auth-provider";
-import { getUserPlan, type UserPlan } from "@/lib/user-service";
+import { useState } from "react";
+
+type InitResponse = {
+  checkoutLink?: string;
+  tx_ref?: string;
+  message?: string;
+  error?: string;
+};
 
 export default function PricingPage() {
-  const { user, loading: authLoading } = useAuth();
-  const [plan, setPlan] = useState<UserPlan>("free");
-  const [loading, setLoading] = useState(true);
-  const [startingPayment, setStartingPayment] = useState(false);
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    async function loadPlan() {
-      if (!user?.uid) {
-        setPlan("free");
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const currentPlan = await getUserPlan(user.uid);
-        setPlan(currentPlan);
-      } catch {
-        setPlan("free");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadPlan();
-  }, [user]);
+  const [loading, setLoading] = useState(false);
 
   async function handleUpgrade() {
-    if (!user?.uid || !user.email) {
-      setMessage("Please log in with a valid email first.");
-      return;
-    }
-
     try {
-      setStartingPayment(true);
-      setMessage("");
+      setLoading(true);
 
-      const response = await fetch("/api/paystack/initialize", {
+      // TODO:
+      // Replace these with your real signed-in user values.
+      // For example, pull them from your auth provider or user profile.
+      const payload = {
+        userId: "user_123",
+        email: "user@example.com",
+        name: "Mandate User",
+        phone: "08000000000",
+      };
+
+      const response = await fetch("/api/flutterwave/initialize", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          uid: user.uid,
-          email: user.email,
-        }),
+        body: JSON.stringify(payload),
       });
 
-      const result = await response.json();
+      const data: InitResponse = await response.json();
 
-      if (!result.success || !result.authorization_url) {
-        setMessage(result.error || "Failed to start payment.");
+      if (!response.ok) {
+        alert(data.error || "Unable to initialize payment.");
         return;
       }
 
-      window.location.href = result.authorization_url;
-    } catch {
-      setMessage("Unable to initialize payment.");
+      if (!data.checkoutLink) {
+        alert("Checkout link was not returned.");
+        return;
+      }
+
+      window.location.href = data.checkoutLink;
+    } catch (error) {
+      console.error("Flutterwave initialize error:", error);
+      alert("Something went wrong while starting payment.");
     } finally {
-      setStartingPayment(false);
+      setLoading(false);
     }
   }
 
-  if (authLoading || loading) {
-    return (
-      <main className="min-h-screen bg-black text-white px-6 py-10">
-        <div className="max-w-5xl mx-auto">Loading...</div>
-      </main>
-    );
-  }
-
   return (
-    <main className="min-h-screen bg-black text-white px-6 py-10">
-      <div className="max-w-5xl mx-auto space-y-8">
-        <div>
-          <h1 className="text-3xl font-bold">Pricing</h1>
-          <p className="text-sm text-gray-400 mt-2">
-            Choose the plan that fits your video generation needs.
-          </p>
-          <p className="text-sm text-gray-300 mt-3">
-            Current plan: <span className="font-semibold uppercase">{plan}</span>
-          </p>
-        </div>
+    <main className="min-h-screen bg-white text-black">
+      <section className="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-6 py-12">
+        <div className="grid w-full gap-8 md:grid-cols-2">
+          <div className="rounded-3xl border border-neutral-200 bg-white p-8 shadow-sm">
+            <p className="mb-3 inline-flex rounded-full border border-neutral-200 px-3 py-1 text-sm font-medium">
+              Current Plan
+            </p>
 
-        <div className="grid md:grid-cols-2 gap-6">
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
-            <h2 className="text-2xl font-bold mb-2">Free</h2>
-            <p className="text-gray-400 mb-6">Start and test the platform.</p>
-            <div className="text-3xl font-bold mb-6">₦0</div>
+            <h1 className="text-3xl font-bold tracking-tight">Naijavid AI Pricing</h1>
 
-            <div className="space-y-3 text-sm text-gray-300">
-              <p>5-second video generation</p>
-              <p>Basic prompt workflow</p>
-              <p>History page access</p>
-              <p>Watermarked output</p>
+            <p className="mt-4 text-base text-neutral-600">
+              Upgrade to Pro to unlock longer generations and premium access.
+            </p>
+
+            <div className="mt-8 rounded-2xl border border-neutral-200 p-6">
+              <div className="flex items-end gap-2">
+                <span className="text-4xl font-bold">₦5,000</span>
+                <span className="pb-1 text-neutral-500">/ month</span>
+              </div>
+
+              <ul className="mt-6 space-y-3 text-sm text-neutral-700">
+                <li>10-second video generation for Pro users</li>
+                <li>Priority access to premium generation flow</li>
+                <li>Cleaner upgrade and billing experience</li>
+                <li>Ready for future plan enforcement</li>
+              </ul>
+
+              <button
+                onClick={handleUpgrade}
+                disabled={loading}
+                className="mt-8 inline-flex w-full items-center justify-center rounded-2xl bg-black px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? "Redirecting to Flutterwave..." : "Upgrade with Flutterwave"}
+              </button>
+
+              <p className="mt-4 text-xs text-neutral-500">
+                You will be redirected to Flutterwave secure checkout.
+              </p>
             </div>
-
-            <button
-              type="button"
-              disabled
-              className="mt-8 w-full rounded-xl bg-zinc-700 text-white font-semibold px-5 py-3 opacity-70"
-            >
-              Current or Default Plan
-            </button>
           </div>
 
-          <div className="rounded-2xl border border-white bg-zinc-900 p-6">
-            <h2 className="text-2xl font-bold mb-2">Pro</h2>
-            <p className="text-gray-400 mb-6">For serious creators and teams.</p>
-            <div className="text-3xl font-bold mb-6">₦5,000/month</div>
+          <div className="rounded-3xl border border-neutral-200 bg-neutral-50 p-8">
+            <h2 className="text-2xl font-bold">What happens next</h2>
 
-            <div className="space-y-3 text-sm text-gray-300">
-              <p>10-second video generation</p>
-              <p>Priority access to premium features</p>
-              <p>Better workflow for commercial use</p>
-              <p>Future advanced generation tools</p>
+            <div className="mt-6 space-y-5 text-sm text-neutral-700">
+              <div className="rounded-2xl border border-neutral-200 bg-white p-4">
+                <p className="font-semibold">1. Start payment</p>
+                <p className="mt-1">
+                  This page calls your backend to create a Flutterwave payment link.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-neutral-200 bg-white p-4">
+                <p className="font-semibold">2. Complete checkout</p>
+                <p className="mt-1">
+                  The user pays on Flutterwave hosted checkout.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-neutral-200 bg-white p-4">
+                <p className="font-semibold">3. Verify transaction</p>
+                <p className="mt-1">
+                  Your server confirms the transaction before you upgrade the user.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-neutral-200 bg-white p-4">
+                <p className="font-semibold">4. Activate Pro</p>
+                <p className="mt-1">
+                  After verification passes, your app updates the user plan.
+                </p>
+              </div>
             </div>
-
-            <button
-              type="button"
-              onClick={handleUpgrade}
-              disabled={startingPayment || plan === "pro"}
-              className="mt-8 w-full rounded-xl bg-white text-black font-semibold px-5 py-3 disabled:opacity-60"
-            >
-              {plan === "pro"
-                ? "Already on Pro"
-                : startingPayment
-                ? "Redirecting..."
-                : "Upgrade to Pro"}
-            </button>
           </div>
         </div>
-
-        {message ? (
-          <div className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm">
-            {message}
-          </div>
-        ) : null}
-      </div>
+      </section>
     </main>
   );
 }
