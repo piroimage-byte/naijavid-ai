@@ -1,16 +1,87 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
-import { onAuthStateChanged, User } from "firebase/auth";
-import { auth } from "@/lib/firebase";
-import { saveVideoHistory } from "@/lib/video-history-service";
 
 type Mode = "text" | "image";
 
-export default function GeneratorPage() {
-  const [user, setUser] = useState<User | null>(null);
+type BackendSuccess = {
+  success?: boolean;
+  message?: string;
+  video_url?: string;
+};
 
+type BackendError =
+  | string
+  | {
+      detail?: unknown;
+      error?: unknown;
+      message?: unknown;
+    };
+
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://naijavid-ai-new.onrender.com";
+
+const LANGUAGE_OPTIONS = [
+  "English",
+  "Yoruba",
+  "Igbo",
+  "Hausa",
+  "Pidgin",
+];
+
+const DURATION_OPTIONS = [5, 10, 15];
+
+function extractErrorMessage(payload: unknown): string {
+  if (!payload) return "Something went wrong.";
+
+  if (typeof payload === "string") return payload;
+
+  if (Array.isArray(payload)) {
+    return payload.map(extractErrorMessage).join(", ");
+  }
+
+  if (typeof payload === "object") {
+    const obj = payload as Record<string, unknown>;
+
+    if (typeof obj.message === "string" && obj.message.trim()) {
+      return obj.message;
+    }
+
+    if (typeof obj.error === "string" && obj.error.trim()) {
+      return obj.error;
+    }
+
+    if (obj.detail) {
+      if (typeof obj.detail === "string") return obj.detail;
+      if (Array.isArray(obj.detail)) {
+        return obj.detail
+          .map((item) => {
+            if (typeof item === "string") return item;
+            if (item && typeof item === "object") {
+              const inner = item as Record<string, unknown>;
+              if (typeof inner.msg === "string") return inner.msg;
+              if (typeof inner.message === "string") return inner.message;
+              if (typeof inner.detail === "string") return inner.detail;
+            }
+            return JSON.stringify(item);
+          })
+          .join(", ");
+      }
+      if (typeof obj.detail === "object") {
+        return JSON.stringify(obj.detail);
+      }
+    }
+
+    return JSON.stringify(obj);
+  }
+
+  return "Something went wrong.";
+}
+
+export default function GeneratorPage() {
   const [mode, setMode] = useState<Mode>("text");
 
   const [prompt, setPrompt] = useState("");
@@ -21,463 +92,405 @@ export default function GeneratorPage() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
 
   const [videoUrl, setVideoUrl] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [backendMessage, setBackendMessage] = useState("");
   const [error, setError] = useState("");
-  const [saveMessage, setSaveMessage] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-    });
+  const canGenerateText = useMemo(() => {
+    return prompt.trim().length > 0 && !isGenerating;
+  }, [prompt, isGenerating]);
 
-    return () => unsub();
-  }, []);
+  const canGenerateImage = useMemo(() => {
+    return !!selectedImage && !isGenerating;
+  }, [selectedImage, isGenerating]);
 
   function resetMessages() {
     setError("");
-    setSaveMessage("");
+    setBackendMessage("");
+  }
+
+  function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
+    resetMessages();
     setVideoUrl("");
+    const file = event.target.files?.[0] || null;
+    setSelectedImage(file);
   }
 
-  function getApiUrl() {
-    return (
-      process.env.NEXT_PUBLIC_API_URL ||
-      process.env.NEXT_PUBLIC_BACKEND_URL ||
-      ""
-    );
+  async function parseBackendResponse(response: Response) {
+    const contentType = response.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+      return response.json();
+    }
+
+    const text = await response.text();
+    return { detail: text };
   }
 
-  async function saveHistory(params: {
-    prompt: string;
-    language: string;
-    duration: number;
-    watermark: string;
-    videoUrl: string;
-  }) {
-    if (!user?.uid) {
-      setSaveMessage("Video generated. Sign in to save history.");
+  async function handleGenerateText(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    resetMessages();
+    setVideoUrl("");
+
+    if (!prompt.trim()) {
+      setError("Please enter a prompt.");
       return;
     }
 
-    await saveVideoHistory({
-      uid: user.uid,
-      prompt: params.prompt,
-      language: params.language,
-      duration: params.duration,
-      watermark: params.watermark,
-      videoUrl: params.videoUrl,
-    });
+    setIsGenerating(true);
 
-    setSaveMessage("Video saved to history.");
-  }
-
-  async function handleGenerateText() {
     try {
-      if (!prompt.trim()) {
-        setError("Please enter a prompt.");
-        return;
-      }
-
-      setLoading(true);
-      resetMessages();
-
-      const apiUrl = getApiUrl();
-
-      const response = await fetch(`${apiUrl}/generate`, {
+      const response = await fetch(`${BACKEND_URL}/generate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          prompt,
-          language,
+          prompt: prompt.trim(),
+          language: language.toLowerCase(),
           duration: Number(duration),
-          watermark,
+          watermark: watermark.trim(),
         }),
       });
 
-      const result = await response.json();
-      console.log("TEXT API RESPONSE:", result);
+      const data = (await parseBackendResponse(response)) as
+        | BackendSuccess
+        | BackendError;
 
       if (!response.ok) {
-        throw new Error(result?.detail || "Failed to generate video.");
+        throw new Error(extractErrorMessage(data));
       }
 
-      if (!result?.video_url) {
-        throw new Error("No video returned from server.");
+      const successData = data as BackendSuccess;
+
+      if (!successData.video_url) {
+        throw new Error("Backend did not return a video URL.");
       }
 
-      setVideoUrl(result.video_url);
-
-      await saveHistory({
-        prompt,
-        language,
-        duration: Number(duration),
-        watermark,
-        videoUrl: result.video_url,
-      });
-    } catch (err: any) {
-      setError(err?.message || "Something went wrong while generating the video.");
+      setVideoUrl(successData.video_url);
+      setBackendMessage(
+        successData.message || "Video generated successfully."
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : extractErrorMessage(err);
+      setError(message);
     } finally {
-      setLoading(false);
+      setIsGenerating(false);
     }
   }
 
-  async function handleGenerateFromImage() {
+  async function handleGenerateImage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    resetMessages();
+    setVideoUrl("");
+
+    if (!selectedImage) {
+      setError("Please upload an image.");
+      return;
+    }
+
+    setIsGenerating(true);
+
     try {
-      if (!selectedImage) {
-        setError("Please choose an image first.");
-        return;
-      }
-
-      setLoading(true);
-      resetMessages();
-
-      const apiUrl = getApiUrl();
-
       const formData = new FormData();
-      formData.append("file", selectedImage);
+      formData.append("image", selectedImage);
+      formData.append(
+        "prompt",
+        prompt.trim() || "Generated from uploaded image"
+      );
+      formData.append("language", language.toLowerCase());
+      formData.append("duration", duration);
+      formData.append("watermark", watermark.trim());
 
-      const response = await fetch(`${apiUrl}/generate-from-image`, {
+      const response = await fetch(`${BACKEND_URL}/generate-from-image`, {
         method: "POST",
         body: formData,
       });
 
-      const result = await response.json();
-      console.log("IMAGE API RESPONSE:", result);
+      const data = (await parseBackendResponse(response)) as
+        | BackendSuccess
+        | BackendError;
 
       if (!response.ok) {
-        throw new Error(result?.detail || "Failed to generate video from image.");
+        throw new Error(extractErrorMessage(data));
       }
 
-      if (!result?.video_url) {
-        throw new Error("No video returned from server.");
+      const successData = data as BackendSuccess;
+
+      if (!successData.video_url) {
+        throw new Error("Backend did not return a video URL.");
       }
 
-      setVideoUrl(result.video_url);
+      const fullVideoUrl = successData.video_url.startsWith("http")
+  ? successData.video_url
+  : `${BACKEND_URL}${successData.video_url}`
 
-      await saveHistory({
-        prompt: selectedImage.name,
-        language: "Image to Video",
-        duration: 5,
-        watermark,
-        videoUrl: result.video_url,
-      });
-    } catch (err: any) {
-      setError(
-        err?.message || "Something went wrong while generating from image."
+setVideoUrl(fullVideoUrl)
+      setBackendMessage(
+        successData.message || "Video generated successfully from image."
       );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : extractErrorMessage(err);
+      setError(message);
     } finally {
-      setLoading(false);
+      setIsGenerating(false);
     }
-  }
-
-  async function handleGenerate() {
-    if (mode === "text") {
-      await handleGenerateText();
-      return;
-    }
-
-    await handleGenerateFromImage();
   }
 
   return (
-    <main
-      style={{
-        maxWidth: 1100,
-        margin: "0 auto",
-        padding: "32px 20px 60px",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 16,
-          alignItems: "center",
-          marginBottom: 24,
-          flexWrap: "wrap",
-        }}
-      >
-        <div>
-          <h1 style={{ fontSize: 44, fontWeight: 800, margin: 0 }}>
-            NaijaVid AI Generator
-          </h1>
-          <p style={{ color: "#b8b8b8", marginTop: 8 }}>
-            Generate short videos from text or images.
-          </p>
-        </div>
+    <main className="min-h-screen bg-black text-white">
+      <div className="mx-auto max-w-6xl px-6 py-10">
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-5xl font-bold tracking-tight">
+              NaijaVid AI Generator
+            </h1>
+            <p className="mt-4 text-xl text-white/80">
+              Generate short videos from text or images.
+            </p>
+          </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Link
             href="/history"
-            style={{
-              padding: "12px 16px",
-              border: "1px solid #444",
-              borderRadius: 12,
-              textDecoration: "none",
-              color: "#fff",
-            }}
+            className="rounded-2xl border border-white/20 px-6 py-4 text-xl font-semibold transition hover:border-white/40 hover:bg-white/5"
           >
             View History
           </Link>
         </div>
-      </div>
 
-      <div
-        style={{
-          display: "grid",
-          gap: 16,
-          padding: 24,
-          border: "1px solid #2b2b2b",
-          borderRadius: 18,
-          background: "#121216",
-        }}
-      >
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <button
-            type="button"
-            onClick={() => setMode("text")}
-            style={{
-              padding: "10px 14px",
-              borderRadius: 12,
-              border: "1px solid #444",
-              cursor: "pointer",
-              fontWeight: 700,
-              opacity: mode === "text" ? 1 : 0.75,
-            }}
-          >
-            Text to Video
-          </button>
+        <section className="rounded-3xl border border-white/10 bg-[#0b0d1a] p-7 shadow-2xl">
+          <div className="mb-8 flex gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setMode("text");
+                resetMessages();
+              }}
+              className={`rounded-2xl px-7 py-4 text-xl font-semibold transition ${
+                mode === "text"
+                  ? "bg-white text-black"
+                  : "border border-white/15 bg-transparent text-white hover:bg-white/5"
+              }`}
+            >
+              Text to Video
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setMode("image")}
-            style={{
-              padding: "10px 14px",
-              borderRadius: 12,
-              border: "1px solid #444",
-              cursor: "pointer",
-              fontWeight: 700,
-              opacity: mode === "image" ? 1 : 0.75,
-            }}
-          >
-            Image to Video
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("image");
+                resetMessages();
+              }}
+              className={`rounded-2xl px-7 py-4 text-xl font-semibold transition ${
+                mode === "image"
+                  ? "bg-white text-black"
+                  : "border border-white/15 bg-transparent text-white hover:bg-white/5"
+              }`}
+            >
+              Image to Video
+            </button>
+          </div>
 
-        {mode === "text" ? (
-          <label>
-            <div style={{ marginBottom: 8, fontWeight: 700 }}>Prompt</div>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={6}
-              placeholder="Describe the video you want to generate..."
-              style={{
-                width: "100%",
-                padding: 16,
-                borderRadius: 12,
-                background: "#000",
-                color: "#fff",
-                border: "1px solid #444",
-                resize: "vertical",
-              }}
-            />
-          </label>
-        ) : (
-          <label>
-            <div style={{ marginBottom: 8, fontWeight: 700 }}>Upload Image</div>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                const file = e.target.files?.[0] || null;
-                setSelectedImage(file);
-              }}
-              style={{
-                width: "100%",
-                padding: 14,
-                borderRadius: 12,
-                background: "#000",
-                color: "#fff",
-                border: "1px solid #444",
-              }}
-            />
-            {selectedImage && (
-              <div style={{ marginTop: 8, color: "#b8b8b8" }}>
-                Selected: {selectedImage.name}
+          {mode === "text" ? (
+            <form onSubmit={handleGenerateText} className="space-y-7">
+              <div>
+                <label className="mb-3 block text-2xl font-semibold">
+                  Prompt
+                </label>
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Describe the video you want to generate"
+                  rows={5}
+                  className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
+                />
               </div>
-            )}
-          </label>
-        )}
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 16,
-          }}
-        >
-          <label>
-            <div style={{ marginBottom: 8, fontWeight: 700 }}>Language</div>
-            <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              disabled={mode === "image"}
-              style={{
-                width: "100%",
-                padding: 14,
-                borderRadius: 12,
-                background: "#000",
-                color: "#fff",
-                border: "1px solid #444",
-                opacity: mode === "image" ? 0.65 : 1,
-              }}
-            >
-              <option value="English">English</option>
-              <option value="Yoruba">Yoruba</option>
-              <option value="Igbo">Igbo</option>
-              <option value="Hausa">Hausa</option>
-              <option value="Pidgin">Pidgin</option>
-            </select>
-          </label>
+              <div className="grid gap-5 md:grid-cols-3">
+                <div>
+                  <label className="mb-3 block text-2xl font-semibold">
+                    Language
+                  </label>
+                  <select
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
+                  >
+                    {LANGUAGE_OPTIONS.map((item) => (
+                      <option key={item} value={item} className="text-black">
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-          <label>
-            <div style={{ marginBottom: 8, fontWeight: 700 }}>Duration</div>
-            <select
-              value={duration}
-              onChange={(e) => setDuration(e.target.value)}
-              disabled={mode === "image"}
-              style={{
-                width: "100%",
-                padding: 14,
-                borderRadius: 12,
-                background: "#000",
-                color: "#fff",
-                border: "1px solid #444",
-                opacity: mode === "image" ? 0.65 : 1,
-              }}
-            >
-              <option value="5">5 seconds</option>
-              <option value="10">10 seconds</option>
-            </select>
-          </label>
+                <div>
+                  <label className="mb-3 block text-2xl font-semibold">
+                    Duration
+                  </label>
+                  <select
+                    value={duration}
+                    onChange={(e) => setDuration(e.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
+                  >
+                    {DURATION_OPTIONS.map((item) => (
+                      <option key={item} value={item} className="text-black">
+                        {item} seconds
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-          <label>
-            <div style={{ marginBottom: 8, fontWeight: 700 }}>Watermark</div>
-            <input
-              value={watermark}
-              onChange={(e) => setWatermark(e.target.value)}
-              style={{
-                width: "100%",
-                padding: 14,
-                borderRadius: 12,
-                background: "#000",
-                color: "#fff",
-                border: "1px solid #444",
-              }}
-            />
-          </label>
-        </div>
+                <div>
+                  <label className="mb-3 block text-2xl font-semibold">
+                    Watermark
+                  </label>
+                  <input
+                    value={watermark}
+                    onChange={(e) => setWatermark(e.target.value)}
+                    placeholder="naijavid.ai"
+                    className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
+                  />
+                </div>
+              </div>
 
-        <button
-          onClick={handleGenerate}
-          disabled={
-            loading || (mode === "text" ? !prompt.trim() : !selectedImage)
-          }
-          style={{
-            padding: "18px",
-            borderRadius: 14,
-            border: "none",
-            fontSize: 22,
-            fontWeight: 800,
-            cursor: loading ? "default" : "pointer",
-          }}
-        >
-          {loading
-            ? "Generating..."
-            : mode === "text"
-            ? "Generate Video"
-            : "Generate From Image"}
-        </button>
+              <button
+                type="submit"
+                disabled={!canGenerateText}
+                className="w-full rounded-2xl bg-white px-6 py-5 text-3xl font-bold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isGenerating ? "Generating..." : "Generate Video"}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleGenerateImage} className="space-y-7">
+              <div>
+                <label className="mb-3 block text-2xl font-semibold">
+                  Upload Image
+                </label>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  onChange={handleImageChange}
+                  className="block w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl file:mr-4 file:rounded-xl file:border-0 file:bg-white file:px-4 file:py-3 file:text-black"
+                />
+                {selectedImage ? (
+                  <p className="mt-3 text-lg text-white/70">
+                    Selected: {selectedImage.name}
+                  </p>
+                ) : null}
+              </div>
 
-        {error && (
-          <div
-            style={{
-              background: "#7f1d1d",
-              color: "#fff",
-              padding: 14,
-              borderRadius: 12,
-            }}
-          >
-            {error}
-          </div>
-        )}
+              <div>
+                <label className="mb-3 block text-2xl font-semibold">
+                  Prompt
+                </label>
+                <input
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Optional description for the uploaded image"
+                  className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
+                />
+              </div>
 
-        {saveMessage && (
-          <div
-            style={{
-              background: "#14532d",
-              color: "#fff",
-              padding: 14,
-              borderRadius: 12,
-            }}
-          >
-            {saveMessage}
-          </div>
-        )}
-      </div>
+              <div className="grid gap-5 md:grid-cols-3">
+                <div>
+                  <label className="mb-3 block text-2xl font-semibold">
+                    Language
+                  </label>
+                  <select
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
+                  >
+                    {LANGUAGE_OPTIONS.map((item) => (
+                      <option key={item} value={item} className="text-black">
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-      <div
-        style={{
-          marginTop: 28,
-          padding: 24,
-          border: "1px solid #2b2b2b",
-          borderRadius: 18,
-          background: "#121216",
-        }}
-      >
-        <h2 style={{ fontSize: 22, marginTop: 0, marginBottom: 16 }}>
-          Preview
-        </h2>
+                <div>
+                  <label className="mb-3 block text-2xl font-semibold">
+                    Duration
+                  </label>
+                  <select
+                    value={duration}
+                    onChange={(e) => setDuration(e.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
+                  >
+                    {DURATION_OPTIONS.map((item) => (
+                      <option key={item} value={item} className="text-black">
+                        {item} seconds
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-        {!videoUrl && (
-          <p style={{ color: "#a9a9a9" }}>
-            Your generated video will appear here.
-          </p>
-        )}
+                <div>
+                  <label className="mb-3 block text-2xl font-semibold">
+                    Watermark
+                  </label>
+                  <input
+                    value={watermark}
+                    onChange={(e) => setWatermark(e.target.value)}
+                    placeholder="naijavid.ai"
+                    className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
+                  />
+                </div>
+              </div>
 
-        {videoUrl && (
-          <div>
-            <video
-              src={videoUrl}
-              controls
-              autoPlay
-              style={{
-                width: "100%",
-                borderRadius: 12,
-                background: "#000",
-              }}
-            />
+              <button
+                type="submit"
+                disabled={!canGenerateImage}
+                className="w-full rounded-2xl bg-white px-6 py-5 text-3xl font-bold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isGenerating ? "Generating..." : "Generate From Image"}
+              </button>
+            </form>
+          )}
 
-            <div
-              style={{
-                marginTop: 14,
-                display: "flex",
-                gap: 12,
-                flexWrap: "wrap",
-              }}
-            >
-              <a href={videoUrl} target="_blank" rel="noreferrer">
-                Open video
-              </a>
-              <a href={videoUrl} download>
-                Download video
+          {error ? (
+            <div className="mt-7 rounded-2xl bg-red-800 px-5 py-4 text-xl font-medium text-white">
+              {error}
+            </div>
+          ) : null}
+
+          {backendMessage ? (
+            <div className="mt-7 rounded-2xl bg-emerald-700/80 px-5 py-4 text-xl font-medium text-white">
+              {backendMessage}
+            </div>
+          ) : null}
+        </section>
+
+        <section className="mt-8 rounded-3xl border border-white/10 bg-[#0b0d1a] p-7 shadow-2xl">
+          <h2 className="text-4xl font-bold">Preview</h2>
+          {!videoUrl ? (
+            <p className="mt-5 text-xl text-white/70">
+              Your generated video will appear here.
+            </p>
+          ) : (
+            <div className="mt-6 space-y-5">
+              <video
+                key={videoUrl}
+                controls
+                className="w-full rounded-2xl border border-white/10 bg-black"
+                src={videoUrl}
+              />
+              <a
+                href={videoUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex rounded-2xl bg-white px-5 py-4 text-lg font-bold text-black"
+              >
+                Open Video
               </a>
             </div>
-          </div>
-        )}
+          )}
+        </section>
       </div>
     </main>
   );
