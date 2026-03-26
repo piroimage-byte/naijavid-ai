@@ -1,53 +1,81 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-export default function FlutterwaveCallbackPage() {
-  const params = useSearchParams();
-
-  const [status, setStatus] = useState("Processing payment...");
+function CallbackContent() {
+  const searchParams = useSearchParams();
+  const [message, setMessage] = useState("Processing payment...");
 
   useEffect(() => {
-    const tx_ref = params.get("tx_ref");
-    const transaction_id = params.get("transaction_id");
-    const payment_status = params.get("status");
-
-    if (!tx_ref || !transaction_id) {
-      setStatus("Invalid payment response.");
-      return;
-    }
-
     async function verifyPayment() {
       try {
-        const res = await fetch("/api/flutterwave/verify", {
+        const transaction_id = searchParams.get("transaction_id");
+        const tx_ref = searchParams.get("tx_ref");
+        const status = searchParams.get("status");
+
+        if (!transaction_id || !tx_ref) {
+          setMessage("Invalid payment response.");
+          return;
+        }
+
+        if (status !== "successful") {
+          setMessage("Payment was not successful.");
+          return;
+        }
+
+        const response = await fetch("/api/flutterwave/verify", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
             transaction_id,
+            tx_ref,
           }),
         });
 
-        const data = await res.json();
+        const data = await response.json();
 
-        if (data.success) {
-          setStatus("Payment successful. You are now Pro.");
-        } else {
-          setStatus("Payment verification failed.");
+        if (!response.ok) {
+          setMessage(data?.error || "Payment verification failed.");
+          return;
         }
+
+        setMessage("Payment successful. Your Pro plan is now active.");
       } catch {
-        setStatus("Error verifying payment.");
+        setMessage("Something went wrong while verifying payment.");
       }
     }
 
     verifyPayment();
-  }, [params]);
+  }, [searchParams]);
 
   return (
-    <main className="min-h-screen bg-black text-white flex items-center justify-center">
-      <h1 className="text-2xl font-semibold">{status}</h1>
+    <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
+      <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-8 text-center">
+        <h1 className="text-2xl font-bold mb-4">Flutterwave Payment Status</h1>
+        <p className="text-white/80">{message}</p>
+      </div>
     </main>
+  );
+}
+
+function CallbackFallback() {
+  return (
+    <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
+      <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-white/5 p-8 text-center">
+        <h1 className="text-2xl font-bold mb-4">Flutterwave Payment Status</h1>
+        <p className="text-white/80">Loading payment details...</p>
+      </div>
+    </main>
+  );
+}
+
+export default function FlutterwaveCallbackPage() {
+  return (
+    <Suspense fallback={<CallbackFallback />}>
+      <CallbackContent />
+    </Suspense>
   );
 }
