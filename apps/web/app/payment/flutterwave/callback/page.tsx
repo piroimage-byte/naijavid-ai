@@ -1,20 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-export default function FlutterwaveCallbackPage() {
+function FlutterwaveCallbackContent() {
   const searchParams = useSearchParams();
   const [message, setMessage] = useState("Verifying payment...");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function verifyPayment() {
       try {
         const status = searchParams.get("status");
         const transaction_id = searchParams.get("transaction_id");
+        const tx_ref = searchParams.get("tx_ref");
 
         if (status !== "successful" || !transaction_id) {
           setMessage("Payment was not completed successfully.");
+          setLoading(false);
           return;
         }
 
@@ -23,19 +26,25 @@ export default function FlutterwaveCallbackPage() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ transaction_id }),
+          body: JSON.stringify({
+            transaction_id,
+            tx_ref,
+          }),
         });
 
         const data = await response.json();
 
         if (!response.ok) {
-          setMessage(data.error || "Verification failed.");
+          setMessage(data?.error || "Payment verification failed.");
+          setLoading(false);
           return;
         }
 
-        setMessage("Payment successful. Your Pro plan is now active.");
+        setMessage("Payment verified successfully. Your Pro plan is now active.");
       } catch (error) {
-        setMessage("Something went wrong during verification.");
+        setMessage("Something went wrong while verifying payment.");
+      } finally {
+        setLoading(false);
       }
     }
 
@@ -43,11 +52,35 @@ export default function FlutterwaveCallbackPage() {
   }, [searchParams]);
 
   return (
-    <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900 p-6">
-        <h1 className="text-2xl font-bold mb-3">Flutterwave Payment</h1>
-        <p>{message}</p>
+    <main className="min-h-screen flex items-center justify-center bg-black px-6">
+      <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-white/5 p-8 text-center shadow-2xl">
+        <h1 className="text-2xl font-bold text-white mb-4">
+          Flutterwave Payment Status
+        </h1>
+
+        <p className="text-white/80 text-base">
+          {loading ? "Please wait..." : message}
+        </p>
       </div>
     </main>
+  );
+}
+
+export default function FlutterwaveCallbackPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center bg-black px-6">
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-white/5 p-8 text-center shadow-2xl">
+            <h1 className="text-2xl font-bold text-white mb-4">
+              Flutterwave Payment Status
+            </h1>
+            <p className="text-white/80 text-base">Loading payment details...</p>
+          </div>
+        </main>
+      }
+    >
+      <FlutterwaveCallbackContent />
+    </Suspense>
   );
 }
