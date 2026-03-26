@@ -1,176 +1,71 @@
 import { NextRequest, NextResponse } from "next/server";
 
-type FlutterwaveVerifyResponse = {
-  status?: string;
-  message?: string;
-  data?: {
-    id?: number | string;
-    tx_ref?: string;
-    flw_ref?: string;
-    amount?: number | string;
-    currency?: string;
-    status?: string;
-    customer?: {
-      email?: string;
-      name?: string;
-      phone_number?: string;
-    };
-  };
-};
-
-const EXPECTED_AMOUNT = 5000;
-const EXPECTED_CURRENCY = "NGN";
-
-async function verifyFlutterwaveTransaction(transactionId: string) {
-  const secretKey = process.env.FLW_SECRET_KEY;
-
-  if (!secretKey) {
-    throw new Error("Missing FLW_SECRET_KEY");
-  }
-
-  const response = await fetch(
-    `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(transactionId)}/verify`,
-    {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        "Content-Type": "application/json",
-      },
-      cache: "no-store",
-    }
-  );
-
-  const data: FlutterwaveVerifyResponse = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data?.message || "Failed to verify Flutterwave transaction");
-  }
-
-  return data;
-}
-
-function extractUserIdFromTxRef(txRef: string) {
-  // Expected format from initialize route:
-  // naijavid_USERID_timestamp
-  const parts = txRef.split("_");
-
-  if (parts.length < 3) return "";
-  return parts[1] || "";
-}
-
-async function upgradeUserToPro(userId: string) {
-  // TODO:
-  // Replace this stub with your real database update logic.
-  // Example options:
-  // 1. Firestore update
-  // 2. Supabase update
-  // 3. Prisma / SQL update
-  // 4. Internal user-service call
-  //
-  // Example pseudo code:
-  // await setUserPlan(userId, "pro");
-
-  console.log(`User ${userId} upgraded to pro`);
-}
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const transactionId = String(body.transaction_id || "").trim();
+    const { transaction_id, tx_ref } = body;
 
-    if (!transactionId) {
+    if (!transaction_id || !tx_ref) {
       return NextResponse.json(
-        { error: "transaction_id is required." },
+        { error: "Missing transaction data" },
         { status: 400 }
       );
     }
 
-    const verification = await verifyFlutterwaveTransaction(transactionId);
-    const data = verification?.data;
+    const secretKey = process.env.FLUTTERWAVE_SECRET_KEY;
 
-    if (!data) {
+    if (!secretKey) {
       return NextResponse.json(
-        { error: "Invalid verification response from Flutterwave." },
-        { status: 400 }
+        { error: "Missing FLUTTERWAVE_SECRET_KEY" },
+        { status: 500 }
       );
     }
 
-    const paymentStatus = String(data.status || "").toLowerCase();
-    const txRef = String(data.tx_ref || "").trim();
-    const amount = Number(data.amount || 0);
-    const currency = String(data.currency || "").toUpperCase();
-
-    if (!txRef) {
-      return NextResponse.json(
-        { error: "Missing tx_ref in verification response." },
-        { status: 400 }
-      );
-    }
-
-    if (paymentStatus !== "successful") {
-      return NextResponse.json(
-        {
-          error: "Payment was not successful.",
-          details: {
-            status: paymentStatus,
-          },
+    // Verify with Flutterwave
+    const response = await fetch(
+      `https://api.flutterwave.com/v3/transactions/${transaction_id}/verify`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
         },
-        { status: 400 }
-      );
-    }
+      }
+    );
 
-    if (currency !== EXPECTED_CURRENCY) {
+    const data = await response.json();
+
+    if (data.status !== "success") {
       return NextResponse.json(
-        {
-          error: "Invalid payment currency.",
-          details: {
-            expected: EXPECTED_CURRENCY,
-            received: currency,
-          },
-        },
+        { error: "Verification failed" },
         { status: 400 }
       );
     }
 
-    if (amount < EXPECTED_AMOUNT) {
+    const payment = data.data;
+
+    // Validate amount + currency
+    if (payment.amount !== 5000 || payment.currency !== "NGN") {
       return NextResponse.json(
-        {
-          error: "Invalid payment amount.",
-          details: {
-            expected: EXPECTED_AMOUNT,
-            received: amount,
-          },
-        },
+        { error: "Invalid payment details" },
         { status: 400 }
       );
     }
 
-    const userId = extractUserIdFromTxRef(txRef);
+    // Extract userId from tx_ref
+    const parts = tx_ref.split("_");
+    const userId = parts[1];
 
-    if (!userId) {
-      return NextResponse.json(
-        { error: "Could not extract userId from tx_ref." },
-        { status: 400 }
-      );
-    }
-
-    await upgradeUserToPro(userId);
+    // TODO: upgrade user to PRO in your DB
+    // Example (replace with your logic):
+    // await setUserPlan(userId, "pro");
 
     return NextResponse.json({
       success: true,
-      message: "Payment verified successfully and plan upgraded.",
-      userId,
-      tx_ref: txRef,
-      transaction_id: data.id || transactionId,
-      flw_ref: data.flw_ref || "",
+      message: "Payment verified",
     });
   } catch (error: any) {
-    console.error("Flutterwave verify error:", error);
-
     return NextResponse.json(
-      {
-        error: error?.message || "Verification failed.",
-      },
+      { error: error.message || "Verification failed" },
       { status: 500 }
     );
   }
