@@ -21,10 +21,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const amount = 5000; // NGN example for Pro plan
+    const amount = 5000;
     const tx_ref = generateTxRef(userId);
 
-    const redirect_url = `${process.env.NEXT_PUBLIC_APP_URL}/payment/flutterwave/callback`;
+    const redirect_url =
+      "https://naijavid-ai.vercel.app/payment/flutterwave/callback";
 
     const payment = await createFlutterwavePaymentLink({
       amount,
