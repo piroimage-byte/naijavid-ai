@@ -41,7 +41,7 @@ function FlutterwaveCallbackContent() {
         }
 
         setMessage("Payment verified successfully. Your Pro plan is now active.");
-      } catch (error) {
+      } catch {
         setMessage("Something went wrong while verifying payment.");
       } finally {
         setLoading(false);
@@ -57,7 +57,6 @@ function FlutterwaveCallbackContent() {
         <h1 className="text-2xl font-bold text-white mb-4">
           Flutterwave Payment Status
         </h1>
-
         <p className="text-white/80 text-base">
           {loading ? "Please wait..." : message}
         </p>
@@ -66,20 +65,22 @@ function FlutterwaveCallbackContent() {
   );
 }
 
+function LoadingFallback() {
+  return (
+    <main className="min-h-screen flex items-center justify-center bg-black px-6">
+      <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-white/5 p-8 text-center shadow-2xl">
+        <h1 className="text-2xl font-bold text-white mb-4">
+          Flutterwave Payment Status
+        </h1>
+        <p className="text-white/80 text-base">Loading payment details...</p>
+      </div>
+    </main>
+  );
+}
+
 export default function FlutterwaveCallbackPage() {
   return (
-    <Suspense
-      fallback={
-        <main className="min-h-screen flex items-center justify-center bg-black px-6">
-          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-white/5 p-8 text-center shadow-2xl">
-            <h1 className="text-2xl font-bold text-white mb-4">
-              Flutterwave Payment Status
-            </h1>
-            <p className="text-white/80 text-base">Loading payment details...</p>
-          </div>
-        </main>
-      }
-    >
+    <Suspense fallback={<LoadingFallback />}>
       <FlutterwaveCallbackContent />
     </Suspense>
   );
