@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { AuthProvider } from "../components/providers/auth-provider";
-import SiteNavbar from "../components/navbar";
 
 export const metadata: Metadata = {
   title: "NaijaVid AI",
@@ -15,12 +13,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
-        <AuthProvider>
-          <SiteNavbar />
-          {children}
-        </AuthProvider>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
