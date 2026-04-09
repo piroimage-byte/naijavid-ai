@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { adminDb } from "@/lib/firebase-admin";
 
 const PRO_AMOUNT = 5000;
 const PRO_CURRENCY = "NGN";
@@ -8,18 +7,14 @@ const PRO_CURRENCY = "NGN";
 function extractUserIdFromTxRef(txRef: string) {
   const prefix = "naijavid_";
 
-  if (!txRef.startsWith(prefix)) {
-    return null;
-  }
+  if (!txRef.startsWith(prefix)) return null;
 
-  const withoutPrefix = txRef.slice(prefix.length);
-  const lastUnderscoreIndex = withoutPrefix.lastIndexOf("_");
+  const rest = txRef.slice(prefix.length);
+  const lastUnderscore = rest.lastIndexOf("_");
 
-  if (lastUnderscoreIndex === -1) {
-    return null;
-  }
+  if (lastUnderscore === -1) return null;
 
-  return withoutPrefix.slice(0, lastUnderscoreIndex);
+  return rest.slice(0, lastUnderscore);
 }
 
 export async function POST(req: NextRequest) {
@@ -45,9 +40,7 @@ export async function POST(req: NextRequest) {
     }
 
     const flutterwaveResponse = await fetch(
-      `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(
-        transaction_id
-      )}/verify`,
+      `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(transaction_id)}/verify`,
       {
         method: "GET",
         headers: {
@@ -105,18 +98,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const userRef = doc(db, "users", userId);
-    const paymentRef = doc(db, "payments", String(payment.id));
+    await adminDb.collection("users").doc(userId).set(
+      {
+        plan: "pro",
+        subscriptionStatus: "active",
+        upgradedAt: new Date(),
+        updatedAt: new Date(),
+      },
+      { merge: true }
+    );
 
-    await updateDoc(userRef, {
-      plan: "pro",
-      subscriptionStatus: "active",
-      upgradedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
-    await setDoc(
-      paymentRef,
+    await adminDb.collection("payments").doc(String(payment.id)).set(
       {
         paymentId: String(payment.id),
         userId,
@@ -127,8 +119,8 @@ export async function POST(req: NextRequest) {
         status: payment.status,
         customerEmail: payment.customer?.email || "",
         provider: "flutterwave",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
       },
       { merge: true }
     );
