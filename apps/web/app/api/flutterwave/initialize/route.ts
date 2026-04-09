@@ -29,17 +29,23 @@ export async function POST(req: NextRequest) {
 
     const payment = await createFlutterwavePaymentLink({
       amount,
-      email,
-      name,
-      phone,
       tx_ref,
       redirect_url,
       currency: "NGN",
+      customer: {
+        email,
+        name,
+        phonenumber: phone,
+      },
+      customizations: {
+        title: "NaijaVid AI Subscription",
+        description: "Pro plan upgrade",
+      },
     });
 
     return NextResponse.json({
       message: "Payment initialized successfully.",
-      checkoutLink: payment?.data?.link,
+      checkoutLink: payment?.link,
       tx_ref,
     });
   } catch (error: any) {
