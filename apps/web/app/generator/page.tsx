@@ -1,277 +1,652 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useMemo, useState } from "react";
-import Link from "next/link";
+import {
+  ChangeEvent,
+  FormEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import { useRouter } from "next/navigation";
+import { doc, getDoc } from "firebase/firestore";
+
+import { useAuth } from "@/components/providers/auth-provider";
+import { db } from "@/lib/firebase";
 
 type Mode = "text" | "image";
+type UserPlan = "free" | "pro";
 
-type BackendSuccess = {
-  success?: boolean;
+type GenerateResponse = {
+  url?: string;
+  videoUrl?: string;
+  outputUrl?: string;
+  downloadUrl?: string;
   message?: string;
-  video_url?: string;
+  error?: string;
 };
 
-type BackendError =
-  | string
-  | {
-      detail?: unknown;
-      error?: unknown;
-      message?: unknown;
-    };
-
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  "https://naijavid-ai-new.onrender.com";
-
-const LANGUAGE_OPTIONS = [
-  "English",
-  "Yoruba",
-  "Igbo",
-  "Hausa",
-  "Pidgin",
-];
-
-const DURATION_OPTIONS = [5, 10, 15];
-
-function extractErrorMessage(payload: unknown): string {
-  if (!payload) return "Something went wrong.";
-
-  if (typeof payload === "string") return payload;
-
-  if (Array.isArray(payload)) {
-    return payload.map(extractErrorMessage).join(", ");
-  }
-
-  if (typeof payload === "object") {
-    const obj = payload as Record<string, unknown>;
-
-    if (typeof obj.message === "string" && obj.message.trim()) {
-      return obj.message;
-    }
-
-    if (typeof obj.error === "string" && obj.error.trim()) {
-      return obj.error;
-    }
-
-    if (obj.detail) {
-      if (typeof obj.detail === "string") return obj.detail;
-      if (Array.isArray(obj.detail)) {
-        return obj.detail
-          .map((item) => {
-            if (typeof item === "string") return item;
-            if (item && typeof item === "object") {
-              const inner = item as Record<string, unknown>;
-              if (typeof inner.msg === "string") return inner.msg;
-              if (typeof inner.message === "string") return inner.message;
-              if (typeof inner.detail === "string") return inner.detail;
-            }
-            return JSON.stringify(item);
-          })
-          .join(", ");
-      }
-      if (typeof obj.detail === "object") {
-        return JSON.stringify(obj.detail);
-      }
-    }
-
-    return JSON.stringify(obj);
-  }
-
-  return "Something went wrong.";
-}
-
 export default function GeneratorPage() {
-  const [mode, setMode] = useState<Mode>("text");
+  const router = useRouter();
 
+  const { user, loading } = useAuth();
+
+  const [plan, setPlan] = useState<UserPlan>("free");
+  const [subscriptionStatus, setSubscriptionStatus] =
+    useState<string>("inactive");
+  const [checkingPlan, setCheckingPlan] = useState(true);
+
+  const [mode, setMode] = useState<Mode>("text");
   const [prompt, setPrompt] = useState("");
+
   const [language, setLanguage] = useState("English");
   const [duration, setDuration] = useState("5");
   const [watermark, setWatermark] = useState("naijavid.ai");
 
-  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
 
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
-  const [backendMessage, setBackendMessage] = useState("");
-  const [error, setError] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
 
-  const canGenerateText = useMemo(() => {
-    return prompt.trim().length > 0 && !isGenerating;
-  }, [prompt, isGenerating]);
+  /*
+   * -------------------------------------------------------
+   * LOAD USER PLAN FROM FIRESTORE
+   * -------------------------------------------------------
+   */
 
-  const canGenerateImage = useMemo(() => {
-    return !!selectedImage && !isGenerating;
-  }, [selectedImage, isGenerating]);
+  useEffect(() => {
+    let active = true;
 
-  function resetMessages() {
-    setError("");
-    setBackendMessage("");
-  }
+    async function loadUserPlan() {
+      if (loading) {
+        return;
+      }
 
-  function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
-    resetMessages();
-    setVideoUrl("");
-    const file = event.target.files?.[0] || null;
-    setSelectedImage(file);
-  }
+      if (!user?.uid) {
+        console.log("No authenticated Firebase user.");
 
-  async function parseBackendResponse(response: Response) {
-    const contentType = response.headers.get("content-type") || "";
+        if (active) {
+          setPlan("free");
+          setSubscriptionStatus("inactive");
+          setCheckingPlan(false);
+        }
 
-    if (contentType.includes("application/json")) {
-      return response.json();
+        return;
+      }
+
+      try {
+        setCheckingPlan(true);
+
+        console.log("AUTH UID:", user.uid);
+
+        const userRef = doc(db, "users", user.uid);
+        const userSnapshot = await getDoc(userRef);
+
+        if (!userSnapshot.exists()) {
+          console.log("User document does not exist.");
+
+          if (active) {
+            setPlan("free");
+            setSubscriptionStatus("inactive");
+          }
+
+          return;
+        }
+
+        const data = userSnapshot.data();
+
+        console.log("FIRESTORE USER DATA:", data);
+        console.log("PLAN FROM FIRESTORE:", data.plan);
+        console.log(
+          "SUBSCRIPTION STATUS:",
+          data.subscriptionStatus
+        );
+
+        const firestorePlan: UserPlan =
+          data.plan === "pro" ? "pro" : "free";
+
+        const firestoreSubscription =
+          typeof data.subscriptionStatus === "string"
+            ? data.subscriptionStatus
+            : "inactive";
+
+        if (active) {
+          setPlan(firestorePlan);
+          setSubscriptionStatus(firestoreSubscription);
+        }
+      } catch (error) {
+        console.error("PLAN READ ERROR:", error);
+
+        if (active) {
+          setPlan("free");
+          setSubscriptionStatus("inactive");
+        }
+      } finally {
+        if (active) {
+          setCheckingPlan(false);
+        }
+      }
     }
 
-    const text = await response.text();
-    return { detail: text };
-  }
+    loadUserPlan();
 
-  async function handleGenerateText(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    resetMessages();
-    setVideoUrl("");
+    return () => {
+      active = false;
+    };
+  }, [user, loading]);
 
-    if (!prompt.trim()) {
-      setError("Please enter a prompt.");
-      return;
-    }
+  /*
+   * -------------------------------------------------------
+   * PRO STATUS
+   * -------------------------------------------------------
+   */
 
-    setIsGenerating(true);
+  const isPro =
+    plan === "pro" &&
+    subscriptionStatus === "active";
 
-    try {
-      const response = await fetch(`${BACKEND_URL}/generate`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+  /*
+   * -------------------------------------------------------
+   * DURATION OPTIONS
+   * -------------------------------------------------------
+   */
+
+  const durationOptions = useMemo(() => {
+    if (isPro) {
+      return [
+        {
+          label: "5 seconds",
+          value: "5",
         },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          language: language.toLowerCase(),
-          duration: Number(duration),
-          watermark: watermark.trim(),
-        }),
-      });
-
-      const data = (await parseBackendResponse(response)) as
-        | BackendSuccess
-        | BackendError;
-
-      if (!response.ok) {
-        throw new Error(extractErrorMessage(data));
-      }
-
-      const successData = data as BackendSuccess;
-
-      if (!successData.video_url) {
-        throw new Error("Backend did not return a video URL.");
-      }
-
-      setVideoUrl(successData.video_url);
-      setBackendMessage(
-        successData.message || "Video generated successfully."
-      );
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : extractErrorMessage(err);
-      setError(message);
-    } finally {
-      setIsGenerating(false);
+        {
+          label: "10 seconds",
+          value: "10",
+        },
+      ];
     }
+
+    return [
+      {
+        label: "5 seconds",
+        value: "5",
+      },
+    ];
+  }, [isPro]);
+
+  useEffect(() => {
+    if (!isPro && duration !== "5") {
+      setDuration("5");
+    }
+  }, [isPro, duration]);
+
+  /*
+   * -------------------------------------------------------
+   * FORM VALIDATION
+   * -------------------------------------------------------
+   */
+
+  const canGenerate = useMemo(() => {
+    if (!isPro) {
+      return false;
+    }
+
+    if (mode === "text") {
+      return prompt.trim().length > 0;
+    }
+
+    return imageFile !== null;
+  }, [isPro, mode, prompt, imageFile]);
+
+  /*
+   * -------------------------------------------------------
+   * IMAGE SELECT
+   * -------------------------------------------------------
+   */
+
+  function handleImageChange(
+    event: ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0] || null;
+
+    setImageFile(file);
+    setVideoUrl("");
+    setMessage("");
   }
 
-  async function handleGenerateImage(event: FormEvent<HTMLFormElement>) {
+  /*
+   * -------------------------------------------------------
+   * GENERATE VIDEO
+   * -------------------------------------------------------
+   */
+
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
-    resetMessages();
+
+    setMessage("");
     setVideoUrl("");
 
-    if (!selectedImage) {
-      setError("Please upload an image.");
+    if (!user?.uid) {
+      setMessage(
+        "Please sign in before generating a video."
+      );
+
       return;
     }
 
-    setIsGenerating(true);
+    if (checkingPlan) {
+      setMessage("Checking your subscription...");
+
+      return;
+    }
+
+    /*
+     * Recheck Firestore immediately before generation.
+     * This prevents stale client state.
+     */
 
     try {
-      const formData = new FormData();
-      formData.append("image", selectedImage);
-      formData.append(
-        "prompt",
-        prompt.trim() || "Generated from uploaded image"
+      const userRef = doc(db, "users", user.uid);
+      const userSnapshot = await getDoc(userRef);
+
+      if (!userSnapshot.exists()) {
+        setMessage(
+          "Your account profile could not be found."
+        );
+
+        return;
+      }
+
+      const account = userSnapshot.data();
+
+      const currentPlan = account.plan;
+      const currentStatus =
+        account.subscriptionStatus;
+
+      if (
+        currentPlan !== "pro" ||
+        currentStatus !== "active"
+      ) {
+        setPlan("free");
+        setSubscriptionStatus(
+          currentStatus || "inactive"
+        );
+
+        setMessage(
+          "You need an active Pro subscription to generate videos."
+        );
+
+        return;
+      }
+    } catch (error) {
+      console.error(
+        "Subscription verification error:",
+        error
       );
-      formData.append("language", language.toLowerCase());
-      formData.append("duration", duration);
-      formData.append("watermark", watermark.trim());
 
-      const response = await fetch(`${BACKEND_URL}/generate-from-image`, {
-        method: "POST",
-        body: formData,
-      });
+      setMessage(
+        "Unable to verify your subscription."
+      );
 
-      const data = (await parseBackendResponse(response)) as
-        | BackendSuccess
-        | BackendError;
+      return;
+    }
+
+    if (mode === "text" && !prompt.trim()) {
+      setMessage(
+        "Please describe the video you want to generate."
+      );
+
+      return;
+    }
+
+    if (mode === "image" && !imageFile) {
+      setMessage(
+        "Please select an image first."
+      );
+
+      return;
+    }
+
+    setSubmitting(true);
+
+    setMessage(
+      mode === "text"
+        ? "Generating your video..."
+        : "Generating video from your image..."
+    );
+
+    try {
+      /*
+       * Use your deployed backend URL.
+       *
+       * Example:
+       * NEXT_PUBLIC_BACKEND_URL=https://your-backend.onrender.com
+       */
+
+      const backendUrl =
+        process.env.NEXT_PUBLIC_BACKEND_URL ||
+        process.env.NEXT_PUBLIC_API_URL ||
+        "";
+
+      if (!backendUrl) {
+        throw new Error(
+          "Backend URL is not configured."
+        );
+      }
+
+      let response: Response;
+
+      /*
+       * ---------------------------------------------------
+       * TEXT TO VIDEO
+       * ---------------------------------------------------
+       */
+
+      if (mode === "text") {
+        response = await fetch(
+          `${backendUrl}/text-to-video`,
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type": "application/json",
+            },
+
+            body: JSON.stringify({
+              userId: user.uid,
+              prompt: prompt.trim(),
+              language,
+              duration: Number(duration),
+              watermark,
+            }),
+          }
+        );
+      }
+
+      /*
+       * ---------------------------------------------------
+       * IMAGE TO VIDEO
+       * ---------------------------------------------------
+       */
+
+      else {
+        const formData = new FormData();
+
+        formData.append(
+          "userId",
+          user.uid
+        );
+
+        formData.append(
+          "duration",
+          duration
+        );
+
+        formData.append(
+          "language",
+          language
+        );
+
+        formData.append(
+          "watermark",
+          watermark
+        );
+
+        if (prompt.trim()) {
+          formData.append(
+            "prompt",
+            prompt.trim()
+          );
+        }
+
+        if (imageFile) {
+          formData.append(
+            "image",
+            imageFile
+          );
+        }
+
+        response = await fetch(
+          `${backendUrl}/image-to-video`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+      }
+
+      /*
+       * ---------------------------------------------------
+       * READ RESPONSE
+       * ---------------------------------------------------
+       */
+
+      let data: GenerateResponse;
+
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(
+          "The video server returned an invalid response."
+        );
+      }
 
       if (!response.ok) {
-        throw new Error(extractErrorMessage(data));
+        throw new Error(
+          data.error ||
+            data.message ||
+            "Video generation failed."
+        );
       }
 
-      const successData = data as BackendSuccess;
+      const generatedVideo =
+        data.videoUrl ||
+        data.outputUrl ||
+        data.downloadUrl ||
+        data.url ||
+        "";
 
-      if (!successData.video_url) {
-        throw new Error("Backend did not return a video URL.");
+      if (!generatedVideo) {
+        setMessage(
+          data.message ||
+            "Generation completed, but no video URL was returned."
+        );
+
+        return;
       }
 
-      const fullVideoUrl = successData.video_url.startsWith("http")
-  ? successData.video_url
-  : `${BACKEND_URL}${successData.video_url}`
+      setVideoUrl(generatedVideo);
 
-setVideoUrl(fullVideoUrl)
-      setBackendMessage(
-        successData.message || "Video generated successfully from image."
+      setMessage(
+        "Video generated successfully."
       );
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : extractErrorMessage(err);
-      setError(message);
+    } catch (error) {
+      console.error(
+        "Generation error:",
+        error
+      );
+
+      if (error instanceof Error) {
+        setMessage(error.message);
+      } else {
+        setMessage(
+          "Something went wrong while generating the video."
+        );
+      }
     } finally {
-      setIsGenerating(false);
+      setSubmitting(false);
     }
   }
+
+  /*
+   * -------------------------------------------------------
+   * AUTH LOADING
+   * -------------------------------------------------------
+   */
+
+  if (loading || checkingPlan) {
+    return (
+      <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
+        <div className="text-center">
+          <h1 className="text-3xl font-bold mb-3">
+            NaijaVid AI
+          </h1>
+
+          <p className="text-white/60">
+            Checking your account...
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  /*
+   * -------------------------------------------------------
+   * NOT SIGNED IN
+   * -------------------------------------------------------
+   */
+
+  if (!user) {
+    return (
+      <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
+        <div className="max-w-lg w-full rounded-3xl border border-white/10 bg-white/5 p-8 text-center">
+
+          <h1 className="text-3xl font-bold mb-4">
+            Sign in required
+          </h1>
+
+          <p className="text-white/70 mb-6">
+            Please sign in to use the NaijaVid AI
+            generator.
+          </p>
+
+          <button
+            type="button"
+            onClick={() => router.push("/")}
+            className="rounded-xl bg-white text-black px-6 py-3 font-semibold"
+          >
+            Return Home
+          </button>
+
+        </div>
+      </main>
+    );
+  }
+
+  /*
+   * -------------------------------------------------------
+   * MAIN UI
+   * -------------------------------------------------------
+   */
 
   return (
-    <main className="min-h-screen bg-black text-white">
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <div className="mb-8 flex items-start justify-between gap-4">
+    <main className="min-h-screen bg-black text-white px-6 py-10">
+
+      <div className="max-w-6xl mx-auto">
+
+        {/* HEADER */}
+
+        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between mb-10">
+
           <div>
-            <h1 className="text-5xl font-bold tracking-tight">
+
+            <h1 className="text-4xl md:text-5xl font-bold mb-3">
               NaijaVid AI Generator
             </h1>
-            <p className="mt-4 text-xl text-white/80">
+
+            <p className="text-white/70 text-lg">
               Generate short videos from text or images.
             </p>
+
           </div>
 
-          <Link
-            href="/history"
-            className="rounded-2xl border border-white/20 px-6 py-4 text-xl font-semibold transition hover:border-white/40 hover:bg-white/5"
-          >
-            View History
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+
+            <div className="rounded-full border border-white/20 bg-white/5 px-5 py-3">
+
+              Current plan:{" "}
+
+              <strong
+                className={
+                  isPro
+                    ? "text-green-400"
+                    : "text-white"
+                }
+              >
+                {isPro ? "PRO" : "FREE"}
+              </strong>
+
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push("/history")
+              }
+              className="rounded-full border border-white/20 px-5 py-3 font-semibold hover:bg-white/10"
+            >
+              View History
+            </button>
+
+          </div>
+
         </div>
 
-        <section className="rounded-3xl border border-white/10 bg-[#0b0d1a] p-7 shadow-2xl">
-          <div className="mb-8 flex gap-3">
+        {/* FREE ACCOUNT NOTICE */}
+
+        {!isPro && (
+
+          <div className="mb-8 rounded-3xl border border-yellow-500/40 bg-yellow-500/10 p-7">
+
+            <h2 className="text-2xl font-bold mb-3">
+              Pro required
+            </h2>
+
+            <p className="text-white/75 mb-6">
+              Video generation is locked to Pro
+              users. Upgrade to unlock 5 to 10
+              second generation and the premium
+              workflow.
+            </p>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push("/pricing")
+              }
+              className="rounded-xl bg-white text-black px-6 py-3 font-semibold hover:bg-gray-200"
+            >
+              Upgrade to Pro
+            </button>
+
+          </div>
+
+        )}
+
+        {/* GENERATOR */}
+
+        <form
+          onSubmit={handleSubmit}
+          className="rounded-3xl border border-white/10 bg-gradient-to-br from-[#07102e] to-[#17115f] p-6 md:p-8"
+        >
+
+          {/* MODE */}
+
+          <div className="flex flex-wrap gap-4 mb-8">
+
             <button
               type="button"
               onClick={() => {
                 setMode("text");
-                resetMessages();
+                setMessage("");
+                setVideoUrl("");
               }}
-              className={`rounded-2xl px-7 py-4 text-xl font-semibold transition ${
+              className={`rounded-2xl px-8 py-4 font-semibold transition ${
                 mode === "text"
                   ? "bg-white text-black"
-                  : "border border-white/15 bg-transparent text-white hover:bg-white/5"
+                  : "border border-white/20 bg-black/20 text-white"
               }`}
             >
               Text to Video
@@ -281,217 +656,259 @@ setVideoUrl(fullVideoUrl)
               type="button"
               onClick={() => {
                 setMode("image");
-                resetMessages();
+                setMessage("");
+                setVideoUrl("");
               }}
-              className={`rounded-2xl px-7 py-4 text-xl font-semibold transition ${
+              className={`rounded-2xl px-8 py-4 font-semibold transition ${
                 mode === "image"
                   ? "bg-white text-black"
-                  : "border border-white/15 bg-transparent text-white hover:bg-white/5"
+                  : "border border-white/20 bg-black/20 text-white"
               }`}
             >
               Image to Video
             </button>
+
           </div>
 
-          {mode === "text" ? (
-            <form onSubmit={handleGenerateText} className="space-y-7">
-              <div>
-                <label className="mb-3 block text-2xl font-semibold">
-                  Prompt
+          {/* TEXT MODE */}
+
+          {mode === "text" && (
+
+            <div className="mb-8">
+
+              <label className="block text-2xl font-bold mb-4">
+                Prompt
+              </label>
+
+              <textarea
+                value={prompt}
+                onChange={(event) =>
+                  setPrompt(
+                    event.target.value
+                  )
+                }
+                placeholder="Describe the video you want to generate"
+                className="min-h-[190px] w-full resize-y rounded-2xl border border-white/10 bg-black/80 px-5 py-4 text-lg text-white outline-none focus:border-white/30"
+              />
+
+            </div>
+
+          )}
+
+          {/* IMAGE MODE */}
+
+          {mode === "image" && (
+
+            <div className="mb-8">
+
+              <label className="block text-2xl font-bold mb-4">
+                Upload Image
+              </label>
+
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={handleImageChange}
+                className="block w-full rounded-2xl border border-white/10 bg-black/80 px-5 py-4 text-base text-white"
+              />
+
+              {imageFile && (
+
+                <p className="mt-4 text-white/75 break-all">
+                  Selected:{" "}
+                  {imageFile.name}
+                </p>
+
+              )}
+
+              <div className="mt-6">
+
+                <label className="block text-lg font-semibold mb-3">
+                  Motion Prompt
                 </label>
+
                 <textarea
                   value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Describe the video you want to generate"
-                  rows={5}
-                  className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
+                  onChange={(event) =>
+                    setPrompt(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Optional: describe how the image should move"
+                  className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/80 px-5 py-4 text-white outline-none"
                 />
+
               </div>
 
-              <div className="grid gap-5 md:grid-cols-3">
-                <div>
-                  <label className="mb-3 block text-2xl font-semibold">
-                    Language
-                  </label>
-                  <select
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
-                  >
-                    {LANGUAGE_OPTIONS.map((item) => (
-                      <option key={item} value={item} className="text-black">
-                        {item}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+            </div>
 
-                <div>
-                  <label className="mb-3 block text-2xl font-semibold">
-                    Duration
-                  </label>
-                  <select
-                    value={duration}
-                    onChange={(e) => setDuration(e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
-                  >
-                    {DURATION_OPTIONS.map((item) => (
-                      <option key={item} value={item} className="text-black">
-                        {item} seconds
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-3 block text-2xl font-semibold">
-                    Watermark
-                  </label>
-                  <input
-                    value={watermark}
-                    onChange={(e) => setWatermark(e.target.value)}
-                    placeholder="naijavid.ai"
-                    className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={!canGenerateText}
-                className="w-full rounded-2xl bg-white px-6 py-5 text-3xl font-bold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isGenerating ? "Generating..." : "Generate Video"}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleGenerateImage} className="space-y-7">
-              <div>
-                <label className="mb-3 block text-2xl font-semibold">
-                  Upload Image
-                </label>
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/jpg,image/webp"
-                  onChange={handleImageChange}
-                  className="block w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl file:mr-4 file:rounded-xl file:border-0 file:bg-white file:px-4 file:py-3 file:text-black"
-                />
-                {selectedImage ? (
-                  <p className="mt-3 text-lg text-white/70">
-                    Selected: {selectedImage.name}
-                  </p>
-                ) : null}
-              </div>
-
-              <div>
-                <label className="mb-3 block text-2xl font-semibold">
-                  Prompt
-                </label>
-                <input
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Optional description for the uploaded image"
-                  className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
-                />
-              </div>
-
-              <div className="grid gap-5 md:grid-cols-3">
-                <div>
-                  <label className="mb-3 block text-2xl font-semibold">
-                    Language
-                  </label>
-                  <select
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
-                  >
-                    {LANGUAGE_OPTIONS.map((item) => (
-                      <option key={item} value={item} className="text-black">
-                        {item}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-3 block text-2xl font-semibold">
-                    Duration
-                  </label>
-                  <select
-                    value={duration}
-                    onChange={(e) => setDuration(e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
-                  >
-                    {DURATION_OPTIONS.map((item) => (
-                      <option key={item} value={item} className="text-black">
-                        {item} seconds
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-3 block text-2xl font-semibold">
-                    Watermark
-                  </label>
-                  <input
-                    value={watermark}
-                    onChange={(e) => setWatermark(e.target.value)}
-                    placeholder="naijavid.ai"
-                    className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-xl outline-none transition focus:border-white/30"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={!canGenerateImage}
-                className="w-full rounded-2xl bg-white px-6 py-5 text-3xl font-bold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isGenerating ? "Generating..." : "Generate From Image"}
-              </button>
-            </form>
           )}
 
-          {error ? (
-            <div className="mt-7 rounded-2xl bg-red-800 px-5 py-4 text-xl font-medium text-white">
-              {error}
-            </div>
-          ) : null}
+          {/* SETTINGS */}
 
-          {backendMessage ? (
-            <div className="mt-7 rounded-2xl bg-emerald-700/80 px-5 py-4 text-xl font-medium text-white">
-              {backendMessage}
-            </div>
-          ) : null}
-        </section>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
 
-        <section className="mt-8 rounded-3xl border border-white/10 bg-[#0b0d1a] p-7 shadow-2xl">
-          <h2 className="text-4xl font-bold">Preview</h2>
-          {!videoUrl ? (
-            <p className="mt-5 text-xl text-white/70">
-              Your generated video will appear here.
-            </p>
-          ) : (
-            <div className="mt-6 space-y-5">
+            {/* LANGUAGE */}
+
+            <div>
+
+              <label className="block text-xl font-bold mb-3">
+                Language
+              </label>
+
+              <select
+                value={language}
+                onChange={(event) =>
+                  setLanguage(
+                    event.target.value
+                  )
+                }
+                className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-white"
+              >
+                <option value="English">
+                  English
+                </option>
+
+                <option value="Yoruba">
+                  Yoruba
+                </option>
+
+                <option value="Igbo">
+                  Igbo
+                </option>
+
+                <option value="Hausa">
+                  Hausa
+                </option>
+
+                <option value="Pidgin">
+                  Nigerian Pidgin
+                </option>
+              </select>
+
+            </div>
+
+            {/* DURATION */}
+
+            <div>
+
+              <label className="block text-xl font-bold mb-3">
+                Duration
+              </label>
+
+              <select
+                value={duration}
+                onChange={(event) =>
+                  setDuration(
+                    event.target.value
+                  )
+                }
+                className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-white"
+              >
+                {durationOptions.map(
+                  (option) => (
+                    <option
+                      key={option.value}
+                      value={option.value}
+                    >
+                      {option.label}
+                    </option>
+                  )
+                )}
+              </select>
+
+            </div>
+
+            {/* WATERMARK */}
+
+            <div>
+
+              <label className="block text-xl font-bold mb-3">
+                Watermark
+              </label>
+
+              <input
+                type="text"
+                value={watermark}
+                onChange={(event) =>
+                  setWatermark(
+                    event.target.value
+                  )
+                }
+                placeholder="naijavid.ai"
+                className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-white outline-none"
+              />
+
+            </div>
+
+          </div>
+
+          {/* GENERATE BUTTON */}
+
+          <button
+            type="submit"
+            disabled={
+              submitting ||
+              !canGenerate ||
+              !isPro
+            }
+            className="w-full rounded-2xl bg-white py-5 text-xl md:text-2xl font-bold text-black transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {submitting
+              ? "Generating Video..."
+              : isPro
+                ? "Generate Video"
+                : "Upgrade to Pro to Generate"}
+          </button>
+
+          {/* STATUS */}
+
+          {message && (
+
+            <div className="mt-6 rounded-2xl border border-white/10 bg-black/40 p-5">
+
+              <p className="text-white/85">
+                {message}
+              </p>
+
+            </div>
+
+          )}
+
+          {/* OUTPUT */}
+
+          {videoUrl && (
+
+            <div className="mt-8">
+
+              <h2 className="text-2xl font-bold mb-4">
+                Generated Video
+              </h2>
+
               <video
-                key={videoUrl}
+                src={videoUrl}
                 controls
                 className="w-full rounded-2xl border border-white/10 bg-black"
-                src={videoUrl}
               />
+
               <a
                 href={videoUrl}
+                download
                 target="_blank"
-                rel="noreferrer"
-                className="inline-flex rounded-2xl bg-white px-5 py-4 text-lg font-bold text-black"
+                rel="noopener noreferrer"
+                className="mt-5 inline-block rounded-xl bg-white px-6 py-3 font-semibold text-black hover:bg-gray-200"
               >
-                Open Video
+                Download Video
               </a>
+
             </div>
+
           )}
-        </section>
+
+        </form>
+
       </div>
+
     </main>
   );
 }

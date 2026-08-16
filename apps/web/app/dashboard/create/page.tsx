@@ -1,71 +1,148 @@
 "use client";
 
-import { useState } from "react";
+import { FormEvent, useState } from "react";
+
+type GenerateResponse = {
+  success?: boolean;
+  video_url?: string;
+  output_url?: string;
+  url?: string;
+  error?: string;
+};
 
 export default function CreateVideoPage() {
-  const [text, setText] = useState("");
-  const [language, setLanguage] = useState("yoruba");
-  const [loading, setLoading] = useState(false);
+  const [script, setScript] = useState("");
+  const [duration, setDuration] = useState("5");
+  const [isLoading, setIsLoading] = useState(false);
+  const [videoUrl, setVideoUrl] = useState("");
+  const [error, setError] = useState("");
 
-  async function handleGenerate() {
-    if (!text.trim()) return alert("Enter script");
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError("");
+    setVideoUrl("");
 
-    setLoading(true);
+    const trimmedScript = script.trim();
 
-    // TEMP FAKE RESPONSE (we will connect backend next)
-    setTimeout(() => {
-      setLoading(false);
-      alert("Video generation started (backend coming next)");
-    }, 1500);
+    if (!trimmedScript) {
+      setError("Please enter a script.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          script: trimmedScript,
+          duration: Number(duration),
+        }),
+      });
+
+      const data: GenerateResponse = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to generate video.");
+      }
+
+      const returnedUrl = data.video_url || data.output_url || data.url || "";
+
+      if (!returnedUrl) {
+        throw new Error("No video URL was returned by the server.");
+      }
+
+      setVideoUrl(returnedUrl);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
-    <main className="min-h-screen px-6 py-10">
-      <div className="mx-auto max-w-3xl">
-        <h1 className="text-3xl font-bold">Create AI Video</h1>
+    <main className="min-h-screen bg-gray-100 px-6 py-10">
+      <div className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-lg">
+        <h1 className="text-4xl font-bold text-black">Create AI Video</h1>
+        <p className="mt-3 text-base text-gray-600">
+          Enter your script and generate a video output.
+        </p>
 
-        <div className="mt-8 space-y-6">
-          {/* Script */}
+        <form onSubmit={handleSubmit} className="mt-8 space-y-6">
           <div>
-            <label className="block text-sm text-white/70 mb-2">
+            <label
+              htmlFor="script"
+              className="mb-2 block text-lg font-semibold text-gray-900"
+            >
               Video Script
             </label>
             <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Enter your video script..."
-              className="w-full rounded-xl bg-white/5 border border-white/10 p-4 text-white outline-none"
-              rows={6}
+              id="script"
+              value={script}
+              onChange={(e) => setScript(e.target.value)}
+              placeholder="Write the script for your video here..."
+              rows={8}
+              className="w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-black outline-none transition focus:border-emerald-500"
             />
           </div>
 
-          {/* Language */}
           <div>
-            <label className="block text-sm text-white/70 mb-2">
-              Language
+            <label
+              htmlFor="duration"
+              className="mb-2 block text-lg font-semibold text-gray-900"
+            >
+              Duration
             </label>
             <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              className="w-full rounded-xl bg-white/5 border border-white/10 p-3 text-white"
+              id="duration"
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              className="w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-black outline-none transition focus:border-emerald-500"
             >
-              <option value="yoruba">Yoruba</option>
-              <option value="igbo">Igbo</option>
-              <option value="hausa">Hausa</option>
-              <option value="pidgin">Pidgin</option>
-              <option value="english">English</option>
+              <option value="5">5 seconds</option>
+              <option value="10">10 seconds</option>
             </select>
           </div>
 
-          {/* Button */}
           <button
-            onClick={handleGenerate}
-            disabled={loading}
-            className="w-full rounded-xl bg-emerald-500 py-3 font-semibold text-black"
+            type="submit"
+            disabled={isLoading}
+            className="w-full rounded-2xl bg-emerald-600 px-6 py-4 text-lg font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {loading ? "Generating..." : "Generate Video"}
+            {isLoading ? "Generating..." : "Generate Video"}
           </button>
-        </div>
+        </form>
+
+        {error ? (
+          <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+            {error}
+          </div>
+        ) : null}
+
+        {videoUrl ? (
+          <div className="mt-8 rounded-3xl border border-gray-200 bg-gray-50 p-6">
+            <h2 className="text-2xl font-bold text-black">Generated Video</h2>
+
+            <video
+              controls
+              className="mt-4 w-full rounded-2xl bg-black"
+              src={videoUrl}
+            />
+
+            <a
+              href={videoUrl}
+              download
+              className="mt-4 inline-block rounded-2xl bg-black px-5 py-3 font-semibold text-white"
+            >
+              Download Video
+            </a>
+          </div>
+        ) : null}
       </div>
     </main>
   );

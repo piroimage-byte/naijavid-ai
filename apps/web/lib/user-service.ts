@@ -1,39 +1,39 @@
-import {
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 export type UserPlan = "free" | "pro";
 
 export type UserProfile = {
   uid: string;
-  email?: string;
-  displayName?: string;
-  plan: UserPlan;
-  createdAt?: any;
-  updatedAt?: any;
+  email?: string | null;
+  name?: string | null;
+  photoURL?: string | null;
+  plan?: UserPlan;
+  subscriptionStatus?: "inactive" | "active";
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  upgradedAt?: unknown;
 };
 
-const COLLECTION = "users";
-
-export async function ensureUserProfile(data: {
+export async function ensureUserProfile(params: {
   uid: string;
   email?: string | null;
-  displayName?: string | null;
+  name?: string | null;
+  photoURL?: string | null;
 }) {
-  const ref = doc(db, COLLECTION, data.uid);
-  const snapshot = await getDoc(ref);
+  const { uid, email = null, name = null, photoURL = null } = params;
 
-  if (!snapshot.exists()) {
+  const ref = doc(db, "users", uid);
+  const snap = await getDoc(ref);
+
+  if (!snap.exists()) {
     await setDoc(ref, {
-      uid: data.uid,
-      email: data.email || "",
-      displayName: data.displayName || "",
+      uid,
+      email,
+      name,
+      photoURL,
       plan: "free",
+      subscriptionStatus: "inactive",
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -41,38 +41,28 @@ export async function ensureUserProfile(data: {
   }
 
   await updateDoc(ref, {
-    email: data.email || "",
-    displayName: data.displayName || "",
+    email,
+    name,
+    photoURL,
     updatedAt: serverTimestamp(),
   });
 }
 
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
-  const ref = doc(db, COLLECTION, uid);
-  const snapshot = await getDoc(ref);
+  const ref = doc(db, "users", uid);
+  const snap = await getDoc(ref);
 
-  if (!snapshot.exists()) {
-    return null;
-  }
+  if (!snap.exists()) return null;
 
-  return snapshot.data() as UserProfile;
+  return snap.data() as UserProfile;
 }
 
 export async function getUserPlan(uid: string): Promise<UserPlan> {
   const profile = await getUserProfile(uid);
-  return profile?.plan || "free";
+  return (profile?.plan as UserPlan) || "free";
 }
 
-export async function setUserPlan(uid: string, plan: UserPlan) {
-  const ref = doc(db, COLLECTION, uid);
-
-  await setDoc(
-    ref,
-    {
-      uid,
-      plan,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+export async function isUserPro(uid: string): Promise<boolean> {
+  const profile = await getUserProfile(uid);
+  return profile?.plan === "pro" && profile?.subscriptionStatus === "active";
 }

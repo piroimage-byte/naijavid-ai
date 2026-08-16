@@ -1,19 +1,22 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AuthProvider } from "@/components/providers/auth-provider";
 
 export const metadata: Metadata = {
   title: "NaijaVid AI",
-  description: "Create short AI videos from images",
+  description: "AI-powered video generation platform",
 };
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }
