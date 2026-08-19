@@ -6,18 +6,29 @@ from moviepy.editor import ImageClip
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 
+# =========================================================
+# PATHS
+# =========================================================
+
 BASE_DIR = Path(__file__).resolve().parent
 
-GENERATED_DIR = BASE_DIR / "generated_videos"
+GENERATED_DIR = BASE_DIR / "generated"
 UPLOADS_DIR = BASE_DIR / "uploads"
 
-GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+GENERATED_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
+
+UPLOADS_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # VIDEO SETTINGS
-# ---------------------------------------------------------
+# =========================================================
 
 VIDEO_WIDTH = 854
 VIDEO_HEIGHT = 480
@@ -29,11 +40,13 @@ MAX_DURATION_SECONDS = 8
 JPEG_QUALITY = 88
 
 
-# ---------------------------------------------------------
+# =========================================================
 # FONT
-# ---------------------------------------------------------
+# =========================================================
 
-def get_font(size: int):
+def get_font(
+    size: int,
+):
     possible_fonts = [
         "arial.ttf",
         "Arial.ttf",
@@ -53,17 +66,16 @@ def get_font(size: int):
     return ImageFont.load_default()
 
 
-# ---------------------------------------------------------
+# =========================================================
 # TEXT WRAPPING
-# ---------------------------------------------------------
+# =========================================================
 
 def wrap_text(
-    draw,
+    draw: ImageDraw.ImageDraw,
     text: str,
     font,
     max_width: int,
 ) -> list[str]:
-
     words = text.split()
 
     if not words:
@@ -74,7 +86,6 @@ def wrap_text(
     current = words[0]
 
     for word in words[1:]:
-
         trial = f"{current} {word}"
 
         bbox = draw.textbbox(
@@ -83,7 +94,10 @@ def wrap_text(
             font=font,
         )
 
-        width = bbox[2] - bbox[0]
+        width = (
+            bbox[2]
+            - bbox[0]
+        )
 
         if width <= max_width:
             current = trial
@@ -96,14 +110,13 @@ def wrap_text(
     return lines
 
 
-# ---------------------------------------------------------
+# =========================================================
 # DURATION
-# ---------------------------------------------------------
+# =========================================================
 
 def sanitize_duration(
     duration: int,
 ) -> int:
-
     try:
         duration = int(duration)
     except Exception:
@@ -118,14 +131,13 @@ def sanitize_duration(
     )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # CLEANUP
-# ---------------------------------------------------------
+# =========================================================
 
 def cleanup_file(
     path: Path,
 ) -> None:
-
     try:
         if path.exists():
             path.unlink()
@@ -133,25 +145,28 @@ def cleanup_file(
         pass
 
 
-# ---------------------------------------------------------
+# =========================================================
 # BACKGROUND
-# ---------------------------------------------------------
+# =========================================================
 
 def create_background() -> Image.Image:
-
     return Image.new(
         "RGB",
         (
             VIDEO_WIDTH,
             VIDEO_HEIGHT,
         ),
-        color=(0, 0, 0),
+        color=(
+            0,
+            0,
+            0,
+        ),
     )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # TEXT VIDEO FRAME
-# ---------------------------------------------------------
+# =========================================================
 
 def draw_centered_multiline_text(
     image: Image.Image,
@@ -159,7 +174,6 @@ def draw_centered_multiline_text(
     language: str,
     watermark: str,
 ) -> Image.Image:
-
     draw = ImageDraw.Draw(image)
 
     title_font = get_font(42)
@@ -182,16 +196,20 @@ def draw_centered_multiline_text(
     total_title_height = 0
 
     for line in title_lines:
-
         bbox = draw.textbbox(
             (0, 0),
             line,
             font=title_font,
         )
 
-        height = bbox[3] - bbox[1]
+        height = (
+            bbox[3]
+            - bbox[1]
+        )
 
-        line_heights.append(height)
+        line_heights.append(
+            height
+        )
 
         total_title_height += (
             height + 10
@@ -207,8 +225,8 @@ def draw_centered_multiline_text(
     )
 
     sub_height = (
-        sub_bbox[3] -
-        sub_bbox[1]
+        sub_bbox[3]
+        - sub_bbox[1]
     )
 
     watermark_bbox = draw.textbbox(
@@ -218,8 +236,8 @@ def draw_centered_multiline_text(
     )
 
     watermark_height = (
-        watermark_bbox[3] -
-        watermark_bbox[1]
+        watermark_bbox[3]
+        - watermark_bbox[1]
     )
 
     block_height = (
@@ -232,16 +250,16 @@ def draw_centered_multiline_text(
 
     y = max(
         (
-            VIDEO_HEIGHT -
-            block_height
-        ) // 2,
+            VIDEO_HEIGHT
+            - block_height
+        )
+        // 2,
         24,
     )
 
     for index, line in enumerate(
         title_lines
     ):
-
         bbox = draw.textbbox(
             (0, 0),
             line,
@@ -249,13 +267,13 @@ def draw_centered_multiline_text(
         )
 
         line_width = (
-            bbox[2] -
-            bbox[0]
+            bbox[2]
+            - bbox[0]
         )
 
         x = (
-            VIDEO_WIDTH -
-            line_width
+            VIDEO_WIDTH
+            - line_width
         ) // 2
 
         draw.text(
@@ -277,13 +295,13 @@ def draw_centered_multiline_text(
     y += 18
 
     sub_width = (
-        sub_bbox[2] -
-        sub_bbox[0]
+        sub_bbox[2]
+        - sub_bbox[0]
     )
 
     sub_x = (
-        VIDEO_WIDTH -
-        sub_width
+        VIDEO_WIDTH
+        - sub_width
     ) // 2
 
     draw.text(
@@ -298,18 +316,18 @@ def draw_centered_multiline_text(
     )
 
     y += (
-        sub_height +
-        28
+        sub_height
+        + 28
     )
 
     watermark_width = (
-        watermark_bbox[2] -
-        watermark_bbox[0]
+        watermark_bbox[2]
+        - watermark_bbox[0]
     )
 
     watermark_x = (
-        VIDEO_WIDTH -
-        watermark_width
+        VIDEO_WIDTH
+        - watermark_width
     ) // 2
 
     draw.text(
@@ -329,24 +347,25 @@ def draw_centered_multiline_text(
     return image
 
 
-# ---------------------------------------------------------
-# IMAGE FITTING
-# ---------------------------------------------------------
+# =========================================================
+# IMAGE FIT
+# =========================================================
 
 def fit_image_to_canvas(
     source: Image.Image,
 ) -> Image.Image:
-
-    source = ImageOps.exif_transpose(
-        source
-    ).convert("RGB")
+    source = (
+        ImageOps
+        .exif_transpose(source)
+        .convert("RGB")
+    )
 
     source.thumbnail(
         (
             VIDEO_WIDTH,
             VIDEO_HEIGHT,
         ),
-        Image.Resampling.LANCZOS,
+        Image.LANCZOS,
     )
 
     canvas = Image.new(
@@ -355,17 +374,21 @@ def fit_image_to_canvas(
             VIDEO_WIDTH,
             VIDEO_HEIGHT,
         ),
-        color=(0, 0, 0),
+        color=(
+            0,
+            0,
+            0,
+        ),
     )
 
     offset_x = (
-        VIDEO_WIDTH -
-        source.width
+        VIDEO_WIDTH
+        - source.width
     ) // 2
 
     offset_y = (
-        VIDEO_HEIGHT -
-        source.height
+        VIDEO_HEIGHT
+        - source.height
     ) // 2
 
     canvas.paste(
@@ -379,9 +402,9 @@ def fit_image_to_canvas(
     return canvas
 
 
-# ---------------------------------------------------------
+# =========================================================
 # IMAGE VIDEO OVERLAY
-# ---------------------------------------------------------
+# =========================================================
 
 def overlay_bottom_text(
     image: Image.Image,
@@ -389,22 +412,24 @@ def overlay_bottom_text(
     language: str,
     watermark: str,
 ) -> Image.Image:
-
     draw = ImageDraw.Draw(
         image,
         "RGBA",
     )
 
-    panel_height = 140
+    panel_height = 130
 
     panel_y = (
-        VIDEO_HEIGHT -
-        panel_height
+        VIDEO_HEIGHT
+        - panel_height
     )
 
     draw.rectangle(
         [
-            (0, panel_y),
+            (
+                0,
+                panel_y,
+            ),
             (
                 VIDEO_WIDTH,
                 VIDEO_HEIGHT,
@@ -414,7 +439,7 @@ def overlay_bottom_text(
             0,
             0,
             0,
-            175,
+            165,
         ),
     )
 
@@ -422,10 +447,7 @@ def overlay_bottom_text(
     meta_font = get_font(18)
     watermark_font = get_font(18)
 
-    max_width = (
-        VIDEO_WIDTH -
-        60
-    )
+    max_width = VIDEO_WIDTH - 60
 
     lines = wrap_text(
         draw,
@@ -439,7 +461,6 @@ def overlay_bottom_text(
     y = panel_y + 16
 
     for line in lines:
-
         bbox = draw.textbbox(
             (0, 0),
             line,
@@ -447,17 +468,20 @@ def overlay_bottom_text(
         )
 
         line_width = (
-            bbox[2] -
-            bbox[0]
+            bbox[2]
+            - bbox[0]
         )
 
         x = (
-            VIDEO_WIDTH -
-            line_width
+            VIDEO_WIDTH
+            - line_width
         ) // 2
 
         draw.text(
-            (x, y),
+            (
+                x,
+                y,
+            ),
             line,
             font=title_font,
             fill=(
@@ -468,10 +492,11 @@ def overlay_bottom_text(
             ),
         )
 
-        y += 30
+        y += 28
 
     meta = (
-        f"Language: {language}"
+        f"Language: "
+        f"{language}"
     )
 
     meta_bbox = draw.textbbox(
@@ -481,19 +506,19 @@ def overlay_bottom_text(
     )
 
     meta_width = (
-        meta_bbox[2] -
-        meta_bbox[0]
+        meta_bbox[2]
+        - meta_bbox[0]
     )
 
     meta_x = (
-        VIDEO_WIDTH -
-        meta_width
+        VIDEO_WIDTH
+        - meta_width
     ) // 2
 
     draw.text(
         (
             meta_x,
-            y + 3,
+            y + 4,
         ),
         meta,
         font=meta_font,
@@ -512,19 +537,19 @@ def overlay_bottom_text(
     )
 
     watermark_width = (
-        watermark_bbox[2] -
-        watermark_bbox[0]
+        watermark_bbox[2]
+        - watermark_bbox[0]
     )
 
     wm_x = (
-        VIDEO_WIDTH -
-        watermark_width -
-        20
+        VIDEO_WIDTH
+        - watermark_width
+        - 20
     )
 
     wm_y = (
-        VIDEO_HEIGHT -
-        28
+        VIDEO_HEIGHT
+        - 30
     )
 
     draw.text(
@@ -538,25 +563,24 @@ def overlay_bottom_text(
             255,
             255,
             255,
-            215,
+            210,
         ),
     )
 
     return image
 
 
-# ---------------------------------------------------------
-# SAVE FRAME
-# ---------------------------------------------------------
+# =========================================================
+# SAVE TEMPORARY FRAME
+# =========================================================
 
 def save_frame_as_image(
     frame: Image.Image,
     suffix: str,
 ) -> Path:
-
     frame_path = (
-        GENERATED_DIR /
-        f"{uuid.uuid4().hex}{suffix}"
+        GENERATED_DIR
+        / f"{uuid.uuid4().hex}{suffix}"
     )
 
     frame.save(
@@ -569,15 +593,15 @@ def save_frame_as_image(
     return frame_path
 
 
-# ---------------------------------------------------------
-# CREATE MP4
-# ---------------------------------------------------------
+# =========================================================
+# CONVERT FRAME TO VIDEO
+# MOVIEPY 1.0.3 COMPATIBLE
+# =========================================================
 
 def save_video_from_frame(
     frame_path: Path,
     duration: int,
 ) -> str:
-
     duration = sanitize_duration(
         duration
     )
@@ -587,18 +611,20 @@ def save_video_from_frame(
     )
 
     output_path = (
-        GENERATED_DIR /
-        filename
+        GENERATED_DIR
+        / filename
     )
 
     clip = None
 
     try:
-
-        clip = ImageClip(
-            str(frame_path)
-        ).with_duration(
-            duration
+        clip = (
+            ImageClip(
+                str(frame_path)
+            )
+            .set_duration(
+                duration
+            )
         )
 
         clip.write_videofile(
@@ -614,23 +640,12 @@ def save_video_from_frame(
                 "+faststart",
             ],
             threads=1,
+            verbose=False,
             logger=None,
         )
 
-        if not output_path.exists():
-            raise RuntimeError(
-                "FFmpeg completed but no video file was created."
-            )
-
-        if output_path.stat().st_size == 0:
-            raise RuntimeError(
-                "Generated video file is empty."
-            )
-
     finally:
-
         if clip is not None:
-
             try:
                 clip.close()
             except Exception:
@@ -644,12 +659,17 @@ def save_video_from_frame(
 
         gc.collect()
 
+    if not output_path.exists():
+        raise RuntimeError(
+            "Video file was not created."
+        )
+
     return filename
 
 
-# ---------------------------------------------------------
+# =========================================================
 # TEXT TO VIDEO
-# ---------------------------------------------------------
+# =========================================================
 
 def generate_text_video(
     prompt: str,
@@ -657,16 +677,11 @@ def generate_text_video(
     duration: int,
     watermark: str,
 ) -> str:
-
-    prompt = prompt.strip()
-    language = language.strip()
-    watermark = watermark.strip()
-
-    image = create_background()
-
+    image = None
     frame_path = None
 
     try:
+        image = create_background()
 
         image = (
             draw_centered_multiline_text(
@@ -677,27 +692,25 @@ def generate_text_video(
             )
         )
 
-        frame_path = (
-            save_frame_as_image(
-                image,
-                "_frame.jpg",
-            )
+        frame_path = save_frame_as_image(
+            image,
+            "_text_frame.jpg",
         )
 
     finally:
+        if image is not None:
+            try:
+                image.close()
+            except Exception:
+                pass
 
-        try:
-            image.close()
-        except Exception:
-            pass
-
-        del image
+            del image
 
         gc.collect()
 
     if frame_path is None:
         raise RuntimeError(
-            "Unable to create video frame."
+            "Unable to create text video frame."
         )
 
     return save_video_from_frame(
@@ -706,9 +719,9 @@ def generate_text_video(
     )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # IMAGE TO VIDEO
-# ---------------------------------------------------------
+# =========================================================
 
 def generate_image_video(
     image_path: str,
@@ -717,16 +730,13 @@ def generate_image_video(
     duration: int,
     watermark: str,
 ) -> str:
-
     canvas = None
     frame_path = None
 
     try:
-
         with Image.open(
             image_path
         ) as source:
-
             canvas = (
                 fit_image_to_canvas(
                     source
@@ -736,9 +746,9 @@ def generate_image_video(
             canvas = (
                 overlay_bottom_text(
                     image=canvas,
-                    prompt=prompt.strip(),
-                    language=language.strip(),
-                    watermark=watermark.strip(),
+                    prompt=prompt,
+                    language=language,
+                    watermark=watermark,
                 )
             )
 
@@ -750,9 +760,7 @@ def generate_image_video(
             )
 
     finally:
-
         if canvas is not None:
-
             try:
                 canvas.close()
             except Exception:
