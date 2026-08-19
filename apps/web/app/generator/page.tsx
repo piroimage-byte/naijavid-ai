@@ -18,42 +18,44 @@ type Mode = "text" | "image";
 type UserPlan = "free" | "pro";
 
 type GenerateResponse = {
-  url?: string;
-  videoUrl?: string;
-  outputUrl?: string;
-  downloadUrl?: string;
+  success?: boolean;
   message?: string;
+  video_url?: string;
+  duration?: number;
+  detail?: string;
+  error?: string;
+};
+
+type SaveHistoryResponse = {
+  success?: boolean;
+  message?: string;
+  id?: string;
   error?: string;
 };
 
 export default function GeneratorPage() {
   const router = useRouter();
-
   const { user, loading } = useAuth();
 
   const [plan, setPlan] = useState<UserPlan>("free");
   const [subscriptionStatus, setSubscriptionStatus] =
-    useState<string>("inactive");
+    useState("inactive");
   const [checkingPlan, setCheckingPlan] = useState(true);
 
   const [mode, setMode] = useState<Mode>("text");
   const [prompt, setPrompt] = useState("");
-
   const [language, setLanguage] = useState("English");
   const [duration, setDuration] = useState("5");
   const [watermark, setWatermark] = useState("naijavid.ai");
-
   const [imageFile, setImageFile] = useState<File | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
 
-  /*
-   * -------------------------------------------------------
-   * LOAD USER PLAN FROM FIRESTORE
-   * -------------------------------------------------------
-   */
+  // ----------------------------------------------------
+  // LOAD USER PLAN
+  // ----------------------------------------------------
 
   useEffect(() => {
     let active = true;
@@ -64,8 +66,6 @@ export default function GeneratorPage() {
       }
 
       if (!user?.uid) {
-        console.log("No authenticated Firebase user.");
-
         if (active) {
           setPlan("free");
           setSubscriptionStatus("inactive");
@@ -84,7 +84,7 @@ export default function GeneratorPage() {
         const userSnapshot = await getDoc(userRef);
 
         if (!userSnapshot.exists()) {
-          console.log("User document does not exist.");
+          console.log("Firestore user document not found.");
 
           if (active) {
             setPlan("free");
@@ -103,20 +103,24 @@ export default function GeneratorPage() {
           data.subscriptionStatus
         );
 
-        const firestorePlan: UserPlan =
-          data.plan === "pro" ? "pro" : "free";
-
-        const firestoreSubscription =
-          typeof data.subscriptionStatus === "string"
-            ? data.subscriptionStatus
-            : "inactive";
-
         if (active) {
-          setPlan(firestorePlan);
-          setSubscriptionStatus(firestoreSubscription);
+          setPlan(
+            data.plan === "pro"
+              ? "pro"
+              : "free"
+          );
+
+          setSubscriptionStatus(
+            data.subscriptionStatus === "active"
+              ? "active"
+              : "inactive"
+          );
         }
       } catch (error) {
-        console.error("PLAN READ ERROR:", error);
+        console.error(
+          "PLAN READ ERROR:",
+          error
+        );
 
         if (active) {
           setPlan("free");
@@ -136,21 +140,17 @@ export default function GeneratorPage() {
     };
   }, [user, loading]);
 
-  /*
-   * -------------------------------------------------------
-   * PRO STATUS
-   * -------------------------------------------------------
-   */
+  // ----------------------------------------------------
+  // PRO STATUS
+  // ----------------------------------------------------
 
   const isPro =
     plan === "pro" &&
     subscriptionStatus === "active";
 
-  /*
-   * -------------------------------------------------------
-   * DURATION OPTIONS
-   * -------------------------------------------------------
-   */
+  // ----------------------------------------------------
+  // DURATION OPTIONS
+  // ----------------------------------------------------
 
   const durationOptions = useMemo(() => {
     if (isPro) {
@@ -160,8 +160,8 @@ export default function GeneratorPage() {
           value: "5",
         },
         {
-          label: "10 seconds",
-          value: "10",
+          label: "8 seconds",
+          value: "8",
         },
       ];
     }
@@ -180,11 +180,9 @@ export default function GeneratorPage() {
     }
   }, [isPro, duration]);
 
-  /*
-   * -------------------------------------------------------
-   * FORM VALIDATION
-   * -------------------------------------------------------
-   */
+  // ----------------------------------------------------
+  // BUTTON VALIDATION
+  // ----------------------------------------------------
 
   const canGenerate = useMemo(() => {
     if (!isPro) {
@@ -192,33 +190,103 @@ export default function GeneratorPage() {
     }
 
     if (mode === "text") {
-      return prompt.trim().length > 0;
+      return prompt.trim().length >= 3;
     }
 
-    return imageFile !== null;
+    return (
+      imageFile !== null &&
+      prompt.trim().length >= 3
+    );
   }, [isPro, mode, prompt, imageFile]);
 
-  /*
-   * -------------------------------------------------------
-   * IMAGE SELECT
-   * -------------------------------------------------------
-   */
+  // ----------------------------------------------------
+  // IMAGE SELECT
+  // ----------------------------------------------------
 
   function handleImageChange(
     event: ChangeEvent<HTMLInputElement>
   ) {
-    const file = event.target.files?.[0] || null;
+    const selectedFile =
+      event.target.files?.[0] || null;
 
-    setImageFile(file);
-    setVideoUrl("");
+    setImageFile(selectedFile);
     setMessage("");
+    setVideoUrl("");
   }
 
-  /*
-   * -------------------------------------------------------
-   * GENERATE VIDEO
-   * -------------------------------------------------------
-   */
+  // ----------------------------------------------------
+  // SAVE VIDEO TO HISTORY
+  // ----------------------------------------------------
+
+  async function saveVideoToHistory(
+    generatedVideoUrl: string
+  ) {
+    if (!user?.uid) {
+      return;
+    }
+
+    try {
+      const saveResponse = await fetch(
+        "/api/save-video",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            userId: user.uid,
+            prompt: prompt.trim(),
+            mode,
+            language,
+            duration: Number(duration),
+            videoUrl: generatedVideoUrl,
+            watermark:
+              watermark.trim() ||
+              "naijavid.ai",
+          }),
+        }
+      );
+
+      let saveData: SaveHistoryResponse;
+
+      try {
+        saveData =
+          await saveResponse.json();
+      } catch {
+        console.error(
+          "History API returned invalid JSON."
+        );
+
+        return;
+      }
+
+      if (!saveResponse.ok) {
+        console.error(
+          "HISTORY SAVE ERROR:",
+          saveData
+        );
+
+        return;
+      }
+
+      console.log(
+        "VIDEO SAVED TO HISTORY:",
+        saveData
+      );
+    } catch (saveError) {
+      console.error(
+        "VIDEO HISTORY REQUEST ERROR:",
+        saveError
+      );
+    }
+  }
+
+  // ----------------------------------------------------
+  // GENERATE VIDEO
+  // ----------------------------------------------------
 
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>
@@ -236,74 +304,32 @@ export default function GeneratorPage() {
       return;
     }
 
-    if (checkingPlan) {
-      setMessage("Checking your subscription...");
-
-      return;
-    }
-
-    /*
-     * Recheck Firestore immediately before generation.
-     * This prevents stale client state.
-     */
-
-    try {
-      const userRef = doc(db, "users", user.uid);
-      const userSnapshot = await getDoc(userRef);
-
-      if (!userSnapshot.exists()) {
-        setMessage(
-          "Your account profile could not be found."
-        );
-
-        return;
-      }
-
-      const account = userSnapshot.data();
-
-      const currentPlan = account.plan;
-      const currentStatus =
-        account.subscriptionStatus;
-
-      if (
-        currentPlan !== "pro" ||
-        currentStatus !== "active"
-      ) {
-        setPlan("free");
-        setSubscriptionStatus(
-          currentStatus || "inactive"
-        );
-
-        setMessage(
-          "You need an active Pro subscription to generate videos."
-        );
-
-        return;
-      }
-    } catch (error) {
-      console.error(
-        "Subscription verification error:",
-        error
-      );
-
+    if (!isPro) {
       setMessage(
-        "Unable to verify your subscription."
+        "An active Pro subscription is required."
       );
 
       return;
     }
 
-    if (mode === "text" && !prompt.trim()) {
+    if (
+      prompt.trim().length < 3
+    ) {
       setMessage(
-        "Please describe the video you want to generate."
+        mode === "image"
+          ? "Enter a motion prompt of at least 3 characters."
+          : "Enter a prompt of at least 3 characters."
       );
 
       return;
     }
 
-    if (mode === "image" && !imageFile) {
+    if (
+      mode === "image" &&
+      !imageFile
+    ) {
       setMessage(
-        "Please select an image first."
+        "Please select an image."
       );
 
       return;
@@ -313,75 +339,87 @@ export default function GeneratorPage() {
 
     setMessage(
       mode === "text"
-        ? "Generating your video..."
+        ? "Generating your text video..."
         : "Generating video from your image..."
     );
 
     try {
-      /*
-       * Use your deployed backend URL.
-       *
-       * Example:
-       * NEXT_PUBLIC_BACKEND_URL=https://your-backend.onrender.com
-       */
+      const rawBackendUrl =
+        process.env
+          .NEXT_PUBLIC_BACKEND_URL ||
+        process.env
+          .NEXT_PUBLIC_API_URL;
 
-      const backendUrl =
-        process.env.NEXT_PUBLIC_BACKEND_URL ||
-        process.env.NEXT_PUBLIC_API_URL ||
-        "";
-
-      if (!backendUrl) {
+      if (!rawBackendUrl) {
         throw new Error(
           "Backend URL is not configured."
         );
       }
 
+      const backendUrl =
+        rawBackendUrl.replace(
+          /\/+$/,
+          ""
+        );
+
       let response: Response;
 
-      /*
-       * ---------------------------------------------------
-       * TEXT TO VIDEO
-       * ---------------------------------------------------
-       */
+      // ------------------------------------------------
+      // TEXT TO VIDEO
+      // POST /generate
+      // ------------------------------------------------
 
       if (mode === "text") {
         response = await fetch(
-          `${backendUrl}/text-to-video`,
+          `${backendUrl}/generate`,
           {
             method: "POST",
 
             headers: {
-              "Content-Type": "application/json",
+              "Content-Type":
+                "application/json",
             },
 
             body: JSON.stringify({
-              userId: user.uid,
-              prompt: prompt.trim(),
+              prompt:
+                prompt.trim(),
+
               language,
-              duration: Number(duration),
-              watermark,
+
+              duration:
+                Number(duration),
+
+              watermark:
+                watermark.trim() ||
+                "naijavid.ai",
             }),
           }
         );
       }
 
-      /*
-       * ---------------------------------------------------
-       * IMAGE TO VIDEO
-       * ---------------------------------------------------
-       */
+      // ------------------------------------------------
+      // IMAGE TO VIDEO
+      // POST /generate-from-image
+      // ------------------------------------------------
 
       else {
-        const formData = new FormData();
+        if (!imageFile) {
+          throw new Error(
+            "Please select an image."
+          );
+        }
+
+        const formData =
+          new FormData();
 
         formData.append(
-          "userId",
-          user.uid
+          "image",
+          imageFile
         );
 
         formData.append(
-          "duration",
-          duration
+          "prompt",
+          prompt.trim()
         );
 
         formData.append(
@@ -390,26 +428,18 @@ export default function GeneratorPage() {
         );
 
         formData.append(
-          "watermark",
-          watermark
+          "duration",
+          duration
         );
 
-        if (prompt.trim()) {
-          formData.append(
-            "prompt",
-            prompt.trim()
-          );
-        }
-
-        if (imageFile) {
-          formData.append(
-            "image",
-            imageFile
-          );
-        }
+        formData.append(
+          "watermark",
+          watermark.trim() ||
+            "naijavid.ai"
+        );
 
         response = await fetch(
-          `${backendUrl}/image-to-video`,
+          `${backendUrl}/generate-from-image`,
           {
             method: "POST",
             body: formData,
@@ -417,50 +447,62 @@ export default function GeneratorPage() {
         );
       }
 
-      /*
-       * ---------------------------------------------------
-       * READ RESPONSE
-       * ---------------------------------------------------
-       */
+      // ------------------------------------------------
+      // READ GENERATION RESPONSE
+      // ------------------------------------------------
 
       let data: GenerateResponse;
 
       try {
-        data = await response.json();
+        data =
+          await response.json();
       } catch {
         throw new Error(
-          "The video server returned an invalid response."
+          `Backend returned an invalid response. HTTP ${response.status}.`
         );
       }
+
+      console.log(
+        "GENERATION RESPONSE:",
+        data
+      );
 
       if (!response.ok) {
         throw new Error(
-          data.error ||
+          data.detail ||
+            data.error ||
             data.message ||
-            "Video generation failed."
+            `Video generation failed. HTTP ${response.status}.`
         );
       }
 
-      const generatedVideo =
-        data.videoUrl ||
-        data.outputUrl ||
-        data.downloadUrl ||
-        data.url ||
-        "";
+      const generatedVideoUrl =
+        data.video_url;
 
-      if (!generatedVideo) {
-        setMessage(
-          data.message ||
-            "Generation completed, but no video URL was returned."
+      if (!generatedVideoUrl) {
+        throw new Error(
+          "Backend completed the request but did not return video_url."
         );
-
-        return;
       }
 
-      setVideoUrl(generatedVideo);
+      // ------------------------------------------------
+      // SHOW VIDEO
+      // ------------------------------------------------
+
+      setVideoUrl(
+        generatedVideoUrl
+      );
+
+      // ------------------------------------------------
+      // SAVE TO HISTORY
+      // ------------------------------------------------
+
+      await saveVideoToHistory(
+        generatedVideoUrl
+      );
 
       setMessage(
-        "Video generated successfully."
+        "Video generated successfully and saved to history."
       );
     } catch (error) {
       console.error(
@@ -468,28 +510,29 @@ export default function GeneratorPage() {
         error
       );
 
-      if (error instanceof Error) {
-        setMessage(error.message);
-      } else {
-        setMessage(
-          "Something went wrong while generating the video."
-        );
-      }
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Video generation failed."
+      );
     } finally {
       setSubmitting(false);
     }
   }
 
-  /*
-   * -------------------------------------------------------
-   * AUTH LOADING
-   * -------------------------------------------------------
-   */
+  // ----------------------------------------------------
+  // LOADING
+  // ----------------------------------------------------
 
-  if (loading || checkingPlan) {
+  if (
+    loading ||
+    checkingPlan
+  ) {
     return (
       <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
+
         <div className="text-center">
+
           <h1 className="text-3xl font-bold mb-3">
             NaijaVid AI
           </h1>
@@ -497,20 +540,21 @@ export default function GeneratorPage() {
           <p className="text-white/60">
             Checking your account...
           </p>
+
         </div>
+
       </main>
     );
   }
 
-  /*
-   * -------------------------------------------------------
-   * NOT SIGNED IN
-   * -------------------------------------------------------
-   */
+  // ----------------------------------------------------
+  // NOT SIGNED IN
+  // ----------------------------------------------------
 
   if (!user) {
     return (
       <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
+
         <div className="max-w-lg w-full rounded-3xl border border-white/10 bg-white/5 p-8 text-center">
 
           <h1 className="text-3xl font-bold mb-4">
@@ -518,51 +562,51 @@ export default function GeneratorPage() {
           </h1>
 
           <p className="text-white/70 mb-6">
-            Please sign in to use the NaijaVid AI
-            generator.
+            Sign in to use NaijaVid AI.
           </p>
 
           <button
             type="button"
-            onClick={() => router.push("/")}
-            className="rounded-xl bg-white text-black px-6 py-3 font-semibold"
+            onClick={() =>
+              router.push("/")
+            }
+            className="rounded-xl bg-white px-6 py-3 font-semibold text-black"
           >
             Return Home
           </button>
 
         </div>
+
       </main>
     );
   }
 
-  /*
-   * -------------------------------------------------------
-   * MAIN UI
-   * -------------------------------------------------------
-   */
+  // ----------------------------------------------------
+  // UI
+  // ----------------------------------------------------
 
   return (
-    <main className="min-h-screen bg-black text-white px-6 py-10">
+    <main className="min-h-screen bg-black text-white px-5 py-10">
 
-      <div className="max-w-6xl mx-auto">
+      <div className="mx-auto max-w-6xl">
 
         {/* HEADER */}
 
-        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between mb-10">
+        <div className="mb-10 flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
 
           <div>
 
-            <h1 className="text-4xl md:text-5xl font-bold mb-3">
+            <h1 className="mb-3 text-4xl font-bold md:text-5xl">
               NaijaVid AI Generator
             </h1>
 
-            <p className="text-white/70 text-lg">
+            <p className="text-lg text-white/70">
               Generate short videos from text or images.
             </p>
 
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap gap-3">
 
             <div className="rounded-full border border-white/20 bg-white/5 px-5 py-3">
 
@@ -572,10 +616,12 @@ export default function GeneratorPage() {
                 className={
                   isPro
                     ? "text-green-400"
-                    : "text-white"
+                    : "text-yellow-400"
                 }
               >
-                {isPro ? "PRO" : "FREE"}
+                {isPro
+                  ? "PRO"
+                  : "FREE"}
               </strong>
 
             </div>
@@ -583,7 +629,9 @@ export default function GeneratorPage() {
             <button
               type="button"
               onClick={() =>
-                router.push("/history")
+                router.push(
+                  "/history"
+                )
               }
               className="rounded-full border border-white/20 px-5 py-3 font-semibold hover:bg-white/10"
             >
@@ -594,29 +642,28 @@ export default function GeneratorPage() {
 
         </div>
 
-        {/* FREE ACCOUNT NOTICE */}
+        {/* PRO NOTICE */}
 
         {!isPro && (
 
           <div className="mb-8 rounded-3xl border border-yellow-500/40 bg-yellow-500/10 p-7">
 
-            <h2 className="text-2xl font-bold mb-3">
+            <h2 className="mb-3 text-2xl font-bold">
               Pro required
             </h2>
 
-            <p className="text-white/75 mb-6">
-              Video generation is locked to Pro
-              users. Upgrade to unlock 5 to 10
-              second generation and the premium
-              workflow.
+            <p className="mb-6 text-white/75">
+              Video generation is available to active Pro users.
             </p>
 
             <button
               type="button"
               onClick={() =>
-                router.push("/pricing")
+                router.push(
+                  "/pricing"
+                )
               }
-              className="rounded-xl bg-white text-black px-6 py-3 font-semibold hover:bg-gray-200"
+              className="rounded-xl bg-white px-6 py-3 font-semibold text-black"
             >
               Upgrade to Pro
             </button>
@@ -625,7 +672,7 @@ export default function GeneratorPage() {
 
         )}
 
-        {/* GENERATOR */}
+        {/* GENERATOR FORM */}
 
         <form
           onSubmit={handleSubmit}
@@ -634,12 +681,13 @@ export default function GeneratorPage() {
 
           {/* MODE */}
 
-          <div className="flex flex-wrap gap-4 mb-8">
+          <div className="mb-8 flex flex-wrap gap-4">
 
             <button
               type="button"
               onClick={() => {
                 setMode("text");
+                setPrompt("");
                 setMessage("");
                 setVideoUrl("");
               }}
@@ -656,6 +704,7 @@ export default function GeneratorPage() {
               type="button"
               onClick={() => {
                 setMode("image");
+                setPrompt("");
                 setMessage("");
                 setVideoUrl("");
               }}
@@ -670,13 +719,13 @@ export default function GeneratorPage() {
 
           </div>
 
-          {/* TEXT MODE */}
+          {/* TEXT */}
 
           {mode === "text" && (
 
             <div className="mb-8">
 
-              <label className="block text-2xl font-bold mb-4">
+              <label className="mb-4 block text-2xl font-bold">
                 Prompt
               </label>
 
@@ -688,42 +737,44 @@ export default function GeneratorPage() {
                   )
                 }
                 placeholder="Describe the video you want to generate"
-                className="min-h-[190px] w-full resize-y rounded-2xl border border-white/10 bg-black/80 px-5 py-4 text-lg text-white outline-none focus:border-white/30"
+                className="min-h-[180px] w-full resize-y rounded-2xl border border-white/10 bg-black/80 px-5 py-4 text-lg text-white outline-none focus:border-white/40"
               />
 
             </div>
 
           )}
 
-          {/* IMAGE MODE */}
+          {/* IMAGE */}
 
           {mode === "image" && (
 
             <div className="mb-8">
 
-              <label className="block text-2xl font-bold mb-4">
+              <label className="mb-4 block text-2xl font-bold">
                 Upload Image
               </label>
 
               <input
                 type="file"
-                accept="image/png,image/jpeg,image/webp"
-                onChange={handleImageChange}
-                className="block w-full rounded-2xl border border-white/10 bg-black/80 px-5 py-4 text-base text-white"
+                accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                onChange={
+                  handleImageChange
+                }
+                className="block w-full rounded-2xl border border-white/10 bg-black/80 px-5 py-4"
               />
 
               {imageFile && (
 
-                <p className="mt-4 text-white/75 break-all">
+                <p className="mt-4 break-all text-white/75">
                   Selected:{" "}
                   {imageFile.name}
                 </p>
 
               )}
 
-              <div className="mt-6">
+              <div className="mt-7">
 
-                <label className="block text-lg font-semibold mb-3">
+                <label className="mb-3 block text-xl font-bold">
                   Motion Prompt
                 </label>
 
@@ -734,9 +785,13 @@ export default function GeneratorPage() {
                       event.target.value
                     )
                   }
-                  placeholder="Optional: describe how the image should move"
-                  className="min-h-[110px] w-full rounded-2xl border border-white/10 bg-black/80 px-5 py-4 text-white outline-none"
+                  placeholder="Example: Slowly zoom toward the subject while the background moves naturally."
+                  className="min-h-[120px] w-full resize-y rounded-2xl border border-white/10 bg-black/80 px-5 py-4 text-white outline-none focus:border-white/40"
                 />
+
+                <p className="mt-2 text-sm text-white/50">
+                  A motion prompt is required.
+                </p>
 
               </div>
 
@@ -746,13 +801,11 @@ export default function GeneratorPage() {
 
           {/* SETTINGS */}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-
-            {/* LANGUAGE */}
+          <div className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-3">
 
             <div>
 
-              <label className="block text-xl font-bold mb-3">
+              <label className="mb-3 block text-xl font-bold">
                 Language
               </label>
 
@@ -765,6 +818,7 @@ export default function GeneratorPage() {
                 }
                 className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-white"
               >
+
                 <option value="English">
                   English
                 </option>
@@ -784,15 +838,14 @@ export default function GeneratorPage() {
                 <option value="Pidgin">
                   Nigerian Pidgin
                 </option>
+
               </select>
 
             </div>
 
-            {/* DURATION */}
-
             <div>
 
-              <label className="block text-xl font-bold mb-3">
+              <label className="mb-3 block text-xl font-bold">
                 Duration
               </label>
 
@@ -805,6 +858,7 @@ export default function GeneratorPage() {
                 }
                 className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-white"
               >
+
                 {durationOptions.map(
                   (option) => (
                     <option
@@ -815,15 +869,14 @@ export default function GeneratorPage() {
                     </option>
                   )
                 )}
+
               </select>
 
             </div>
 
-            {/* WATERMARK */}
-
             <div>
 
-              <label className="block text-xl font-bold mb-3">
+              <label className="mb-3 block text-xl font-bold">
                 Watermark
               </label>
 
@@ -843,7 +896,7 @@ export default function GeneratorPage() {
 
           </div>
 
-          {/* GENERATE BUTTON */}
+          {/* GENERATE */}
 
           <button
             type="submit"
@@ -852,22 +905,24 @@ export default function GeneratorPage() {
               !canGenerate ||
               !isPro
             }
-            className="w-full rounded-2xl bg-white py-5 text-xl md:text-2xl font-bold text-black transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+            className="w-full rounded-2xl bg-white py-5 text-xl font-bold text-black transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 md:text-2xl"
           >
+
             {submitting
               ? "Generating Video..."
               : isPro
                 ? "Generate Video"
                 : "Upgrade to Pro to Generate"}
+
           </button>
 
-          {/* STATUS */}
+          {/* MESSAGE */}
 
           {message && (
 
             <div className="mt-6 rounded-2xl border border-white/10 bg-black/40 p-5">
 
-              <p className="text-white/85">
+              <p className="text-white/90">
                 {message}
               </p>
 
@@ -875,31 +930,55 @@ export default function GeneratorPage() {
 
           )}
 
-          {/* OUTPUT */}
+          {/* VIDEO */}
 
           {videoUrl && (
 
             <div className="mt-8">
 
-              <h2 className="text-2xl font-bold mb-4">
+              <h2 className="mb-4 text-2xl font-bold">
                 Generated Video
               </h2>
 
               <video
                 src={videoUrl}
                 controls
+                playsInline
                 className="w-full rounded-2xl border border-white/10 bg-black"
               />
 
-              <a
-                href={videoUrl}
-                download
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-5 inline-block rounded-xl bg-white px-6 py-3 font-semibold text-black hover:bg-gray-200"
-              >
-                Download Video
-              </a>
+              <div className="mt-5 flex flex-wrap gap-4">
+
+                <a
+                  href={videoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-xl bg-white px-6 py-3 font-semibold text-black hover:bg-gray-200"
+                >
+                  Open Video
+                </a>
+
+                <a
+                  href={videoUrl}
+                  download
+                  className="rounded-xl border border-white/20 px-6 py-3 font-semibold text-white hover:bg-white/10"
+                >
+                  Download Video
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    router.push(
+                      "/history"
+                    )
+                  }
+                  className="rounded-xl border border-white/20 px-6 py-3 font-semibold text-white hover:bg-white/10"
+                >
+                  View History
+                </button>
+
+              </div>
 
             </div>
 
