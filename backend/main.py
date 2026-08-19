@@ -9,14 +9,13 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
-from backend.generator import (
+from backend.generate import (
     GENERATED_DIR,
     UPLOADS_DIR,
     MAX_DURATION_SECONDS,
     generate_image_video,
     generate_text_video,
 )
-
 
 # =========================================================
 # APP
