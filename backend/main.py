@@ -1,3 +1,5 @@
+import base64
+import json
 import os
 import uuid
 from pathlib import Path
@@ -17,13 +19,14 @@ from generate import (
     generate_text_video,
 )
 
+
 # =========================================================
 # APP
 # =========================================================
 
 app = FastAPI(
     title="NaijaVid AI Backend",
-    version="0.3.0",
+    version="0.4.0",
 )
 
 app.add_middleware(
@@ -36,7 +39,7 @@ app.add_middleware(
 
 
 # =========================================================
-# CONSTANTS
+# SETTINGS
 # =========================================================
 
 MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
@@ -48,82 +51,70 @@ ALLOWED_EXTENSIONS = {
     ".webp",
 }
 
-
-# =========================================================
-# FIREBASE ENVIRONMENT
-# =========================================================
-
-FIREBASE_PROJECT_ID = (
-    os.getenv("FIREBASE_PROJECT_ID", "")
-    .strip()
-)
-
-FIREBASE_CLIENT_EMAIL = (
-    os.getenv("FIREBASE_CLIENT_EMAIL", "")
-    .strip()
-)
-
-FIREBASE_PRIVATE_KEY = (
-    os.getenv("FIREBASE_PRIVATE_KEY", "")
-    .replace("\\n", "\n")
-    .strip()
-)
-
-FIREBASE_STORAGE_BUCKET = (
-    os.getenv(
-        "FIREBASE_STORAGE_BUCKET",
-        "naijavid-ai.firebasestorage.app",
-    )
-    .strip()
-)
+FIREBASE_STORAGE_BUCKET = os.getenv(
+    "FIREBASE_STORAGE_BUCKET",
+    "naijavid-ai.firebasestorage.app",
+).strip()
 
 
 # =========================================================
-# FIREBASE INITIALIZATION
+# FIREBASE ADMIN
 # =========================================================
 
 def init_firebase() -> None:
     if firebase_admin._apps:
         return
 
-    if not FIREBASE_PROJECT_ID:
+    encoded_service_account = os.getenv(
+        "FIREBASE_SERVICE_ACCOUNT_BASE64",
+        "",
+    ).strip()
+
+    if not encoded_service_account:
         raise RuntimeError(
-            "Missing FIREBASE_PROJECT_ID"
+            "Missing FIREBASE_SERVICE_ACCOUNT_BASE64"
         )
 
-    if not FIREBASE_CLIENT_EMAIL:
-        raise RuntimeError(
-            "Missing FIREBASE_CLIENT_EMAIL"
+    try:
+        decoded_json = base64.b64decode(
+            encoded_service_account
+        ).decode("utf-8")
+
+        service_account = json.loads(
+            decoded_json
         )
 
-    if not FIREBASE_PRIVATE_KEY:
+    except Exception as exc:
         raise RuntimeError(
-            "Missing FIREBASE_PRIVATE_KEY"
-        )
+            f"Invalid Firebase service account Base64: {exc}"
+        ) from exc
 
-    credential_data = {
-        "type": "service_account",
-        "project_id": FIREBASE_PROJECT_ID,
-        "private_key": FIREBASE_PRIVATE_KEY,
-        "client_email": FIREBASE_CLIENT_EMAIL,
-        "token_uri": "https://oauth2.googleapis.com/token",
-    }
+    required_fields = [
+        "project_id",
+        "private_key",
+        "client_email",
+    ]
+
+    for field in required_fields:
+        if not service_account.get(field):
+            raise RuntimeError(
+                f"Firebase service account is missing {field}"
+            )
 
     cred = credentials.Certificate(
-        credential_data
+        service_account
     )
 
     firebase_admin.initialize_app(
         cred,
         {
-            "storageBucket":
-                FIREBASE_STORAGE_BUCKET,
+            "storageBucket": FIREBASE_STORAGE_BUCKET,
         },
     )
 
 
 # =========================================================
-# FIREBASE STORAGE UPLOAD
+# FIREBASE STORAGE
 # =========================================================
 
 def upload_video_to_firebase(
@@ -139,8 +130,7 @@ def upload_video_to_firebase(
     bucket = storage.bucket()
 
     remote_name = (
-        f"generated-videos/"
-        f"{uuid.uuid4().hex}.mp4"
+        f"generated-videos/{uuid.uuid4().hex}.mp4"
     )
 
     blob = bucket.blob(remote_name)
@@ -164,14 +154,12 @@ def upload_video_to_firebase(
         safe="",
     )
 
-    permanent_url = (
+    return (
         "https://firebasestorage.googleapis.com/"
         f"v0/b/{FIREBASE_STORAGE_BUCKET}/o/"
         f"{encoded_path}"
         f"?alt=media&token={download_token}"
     )
-
-    return permanent_url
 
 
 # =========================================================
@@ -258,10 +246,7 @@ async def save_upload_file_streaming(
 
                 total_bytes += len(chunk)
 
-                if (
-                    total_bytes
-                    > MAX_UPLOAD_SIZE_BYTES
-                ):
+                if total_bytes > MAX_UPLOAD_SIZE_BYTES:
                     cleanup_file(
                         destination
                     )
@@ -270,8 +255,7 @@ async def save_upload_file_streaming(
                         status_code=413,
                         detail=(
                             "Image is too large. "
-                            "Maximum upload size "
-                            "is 10MB."
+                            "Maximum upload size is 10MB."
                         ),
                     )
 
@@ -296,17 +280,13 @@ def normalize_text(
     if len(cleaned) < min_len:
         raise HTTPException(
             status_code=422,
-            detail=(
-                f"{field_name} is required."
-            ),
+            detail=f"{field_name} is required.",
         )
 
     if len(cleaned) > max_len:
         raise HTTPException(
             status_code=422,
-            detail=(
-                f"{field_name} is too long."
-            ),
+            detail=f"{field_name} is too long.",
         )
 
     return cleaned
@@ -320,8 +300,7 @@ def normalize_text(
 def root():
     return {
         "success": True,
-        "message":
-            "NaijaVid AI Backend is running.",
+        "message": "NaijaVid AI Backend is running.",
     }
 
 
@@ -329,8 +308,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "service":
-            "naijavid-ai-backend",
+        "service": "naijavid-ai-backend",
     }
 
 
@@ -365,16 +343,13 @@ async def generate_video(
         return {
             "success": True,
             "message": (
-                "Video generated and "
-                "uploaded successfully."
+                "Video generated and uploaded successfully."
             ),
-            "video_url":
-                permanent_video_url,
-            "duration":
-                min(
-                    data.duration,
-                    MAX_DURATION_SECONDS,
-                ),
+            "video_url": permanent_video_url,
+            "duration": min(
+                data.duration,
+                MAX_DURATION_SECONDS,
+            ),
         }
 
     except HTTPException:
@@ -384,16 +359,12 @@ async def generate_video(
         raise HTTPException(
             status_code=500,
             detail=(
-                "Video generation failed: "
-                f"{exc}"
+                f"Video generation failed: {exc}"
             ),
         )
 
     finally:
-        if (
-            local_video_path
-            is not None
-        ):
+        if local_video_path is not None:
             cleanup_file(
                 local_video_path
             )
@@ -438,16 +409,13 @@ async def generate_from_image(
 
         if (
             duration < 1
-            or duration
-            > MAX_DURATION_SECONDS
+            or duration > MAX_DURATION_SECONDS
         ):
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "Duration must be "
-                    f"between 1 and "
-                    f"{MAX_DURATION_SECONDS} "
-                    "seconds."
+                    f"Duration must be between 1 and "
+                    f"{MAX_DURATION_SECONDS} seconds."
                 ),
             )
 
@@ -455,16 +423,12 @@ async def generate_from_image(
             image.filename or ""
         ).suffix.lower()
 
-        if (
-            ext
-            not in ALLOWED_EXTENSIONS
-        ):
+        if ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Only JPG, JPEG, PNG, "
-                    "and WEBP images are "
-                    "supported."
+                    "Only JPG, JPEG, PNG, and WEBP "
+                    "images are supported."
                 ),
             )
 
@@ -479,8 +443,7 @@ async def generate_from_image(
         )
 
         filename = generate_image_video(
-            image_path=
-                str(upload_path),
+            image_path=str(upload_path),
             prompt=prompt,
             language=language,
             duration=duration,
@@ -503,13 +466,11 @@ async def generate_from_image(
                 "Video generated from image "
                 "and uploaded successfully."
             ),
-            "video_url":
-                permanent_video_url,
-            "duration":
-                min(
-                    duration,
-                    MAX_DURATION_SECONDS,
-                ),
+            "video_url": permanent_video_url,
+            "duration": min(
+                duration,
+                MAX_DURATION_SECONDS,
+            ),
         }
 
     except HTTPException:
@@ -519,8 +480,7 @@ async def generate_from_image(
         raise HTTPException(
             status_code=500,
             detail=(
-                "Image-to-video generation "
-                f"failed: {exc}"
+                f"Image-to-video generation failed: {exc}"
             ),
         )
 
@@ -530,10 +490,7 @@ async def generate_from_image(
                 upload_path
             )
 
-        if (
-            local_video_path
-            is not None
-        ):
+        if local_video_path is not None:
             cleanup_file(
                 local_video_path
             )
