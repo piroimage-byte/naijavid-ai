@@ -2,7 +2,7 @@ import gc
 import uuid
 from pathlib import Path
 
-from moviepy import ImageClip
+from moviepy.editor import ImageClip
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 
