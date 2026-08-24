@@ -37,8 +37,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (firebaseUser) {
         await ensureUserProfile({
           uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName,
+email: firebaseUser.email,
+name: firebaseUser.displayName,
+photoURL: firebaseUser.photoURL,
         });
       }
 
