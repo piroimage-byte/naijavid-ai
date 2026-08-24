@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function FlutterwaveCallbackPage() {
+function FlutterwaveCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -11,9 +11,8 @@ export default function FlutterwaveCallbackPage() {
     "Verifying your payment..."
   );
 
-  const [success, setSuccess] = useState<boolean | null>(
-    null
-  );
+  const [success, setSuccess] =
+    useState<boolean | null>(null);
 
   useEffect(() => {
     async function verifyPayment() {
@@ -47,11 +46,10 @@ export default function FlutterwaveCallbackPage() {
           "/api/flutterwave/verify",
           {
             method: "POST",
-
             headers: {
-              "Content-Type": "application/json",
+              "Content-Type":
+                "application/json",
             },
-
             body: JSON.stringify({
               transactionId,
               txRef,
@@ -59,9 +57,13 @@ export default function FlutterwaveCallbackPage() {
           }
         );
 
-        const data = await response.json();
+        const data =
+          await response.json();
 
-        if (!response.ok || !data.success) {
+        if (
+          !response.ok ||
+          !data.success
+        ) {
           throw new Error(
             data.error ||
               data.message ||
@@ -133,8 +135,8 @@ export default function FlutterwaveCallbackPage() {
               success === true
                 ? "#4ade80"
                 : success === false
-                  ? "#f87171"
-                  : "#fff",
+                ? "#f87171"
+                : "#fff",
           }}
         >
           {message}
@@ -179,5 +181,28 @@ export default function FlutterwaveCallbackPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function FlutterwaveCallbackPage() {
+  return (
+    <Suspense
+      fallback={
+        <main
+          style={{
+            minHeight: "100vh",
+            background: "#000",
+            color: "#fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <p>Loading payment status...</p>
+        </main>
+      }
+    >
+      <FlutterwaveCallbackContent />
+    </Suspense>
   );
 }
