@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { onAuthStateChanged, User } from "firebase/auth";
+
 import { auth } from "@/lib/firebase";
 import {
   clearVideoHistory,
@@ -24,40 +25,65 @@ export default function HistoryPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (firebaseUser) => {
+        setUser(firebaseUser);
 
-      if (!firebaseUser) {
-        setItems([]);
-        setLoading(false);
-        return;
+        if (!firebaseUser) {
+          setItems([]);
+          setLoading(false);
+          return;
+        }
+
+        try {
+          setLoading(true);
+          setError("");
+
+          const data = await getVideoHistory(firebaseUser.uid);
+          setItems(data);
+        } catch (err: any) {
+          console.error("HISTORY LOAD ERROR:", err);
+
+          setError(
+            err?.message || "Failed to load video history."
+          );
+        } finally {
+          setLoading(false);
+        }
       }
+    );
 
-      try {
-        setLoading(true);
-        setError("");
-        const data = await getVideoHistory(firebaseUser.uid);
-        setItems(data);
-      } catch (err: any) {
-        setError(err?.message || "Failed to load video history.");
-      } finally {
-        setLoading(false);
-      }
-    });
-
-    return () => unsub();
+    return () => unsubscribe();
   }, []);
 
-  const hasItems = useMemo(() => items.length > 0, [items]);
+  const hasItems = useMemo(
+    () => items.length > 0,
+    [items]
+  );
 
   async function handleDelete(id: string) {
+    const confirmed = window.confirm(
+      "Delete this video from your history?"
+    );
+
+    if (!confirmed) return;
+
     try {
       setWorking(true);
       setError("");
+
       await deleteVideoHistoryItem(id);
-      setItems((prev) => prev.filter((item) => item.id !== id));
+
+      setItems((previous) =>
+        previous.filter((item) => item.id !== id)
+      );
     } catch (err: any) {
-      setError(err?.message || "Failed to delete item.");
+      console.error("DELETE HISTORY ERROR:", err);
+
+      setError(
+        err?.message || "Failed to delete item."
+      );
     } finally {
       setWorking(false);
     }
@@ -66,32 +92,75 @@ export default function HistoryPage() {
   async function handleClearAll() {
     if (!user) return;
 
-    const confirmed = window.confirm("Clear your entire video history?");
+    const confirmed = window.confirm(
+      "Clear your entire video history?"
+    );
+
     if (!confirmed) return;
 
     try {
       setWorking(true);
       setError("");
+
       await clearVideoHistory(user.uid);
       setItems([]);
     } catch (err: any) {
-      setError(err?.message || "Failed to clear history.");
+      console.error("CLEAR HISTORY ERROR:", err);
+
+      setError(
+        err?.message || "Failed to clear history."
+      );
     } finally {
       setWorking(false);
     }
   }
 
   return (
-    <main style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 20px 60px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "center", marginBottom: 24 }}>
+    <main
+      style={{
+        maxWidth: 1200,
+        margin: "0 auto",
+        padding: "32px 20px 60px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 16,
+          alignItems: "center",
+          marginBottom: 24,
+          flexWrap: "wrap",
+        }}
+      >
         <div>
-          <h1 style={{ fontSize: 40, fontWeight: 800, margin: 0 }}>Video History</h1>
-          <p style={{ color: "#b8b8b8", marginTop: 8 }}>
+          <h1
+            style={{
+              fontSize: 40,
+              fontWeight: 800,
+              margin: 0,
+            }}
+          >
+            Video History
+          </h1>
+
+          <p
+            style={{
+              color: "#777",
+              marginTop: 8,
+            }}
+          >
             View, open, download, and manage your generated videos.
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
           <Link
             href="/generator"
             style={{
@@ -99,7 +168,8 @@ export default function HistoryPage() {
               border: "1px solid #444",
               borderRadius: 12,
               textDecoration: "none",
-              color: "#fff",
+              color: "#111",
+              fontWeight: 700,
             }}
           >
             Back to Generator
@@ -107,29 +177,32 @@ export default function HistoryPage() {
 
           {hasItems && (
             <button
+              type="button"
               onClick={handleClearAll}
               disabled={working}
               style={{
                 padding: "12px 16px",
                 border: "none",
                 borderRadius: 12,
-                cursor: "pointer",
+                cursor: working ? "not-allowed" : "pointer",
                 fontWeight: 700,
+                opacity: working ? 0.6 : 1,
               }}
             >
-              {working ? "Clearing..." : "Clear All"}
+              {working ? "Working..." : "Clear All"}
             </button>
           )}
         </div>
       </div>
 
-      {!user && (
+      {!user && !loading && (
         <div
           style={{
             border: "1px solid #333",
             borderRadius: 16,
             padding: 20,
             background: "#111",
+            color: "#fff",
           }}
         >
           Sign in to see your saved video history.
@@ -157,6 +230,7 @@ export default function HistoryPage() {
             borderRadius: 16,
             padding: 20,
             background: "#111",
+            color: "#fff",
           }}
         >
           Loading history...
@@ -170,97 +244,170 @@ export default function HistoryPage() {
             borderRadius: 16,
             padding: 20,
             background: "#111",
+            color: "#fff",
           }}
         >
           No saved videos yet.
         </div>
       )}
 
-      {user && hasItems && (
+      {user && !loading && hasItems && (
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(320px, 1fr))",
             gap: 20,
           }}
         >
-          {items.map((item) => (
-            <div
-              key={item.id}
-              style={{
-                border: "1px solid #2b2b2b",
-                borderRadius: 18,
-                padding: 16,
-                background: "#0f0f10",
-              }}
-            >
-              <video
-                src={item.videoUrl}
-                controls
+          {items.map((item) => {
+            const videoUrl =
+              typeof item.videoUrl === "string"
+                ? item.videoUrl.trim()
+                : "";
+
+            const hasVideo = videoUrl.length > 0;
+
+            return (
+              <div
+                key={item.id}
                 style={{
-                  width: "100%",
-                  borderRadius: 12,
-                  background: "#000",
-                  marginBottom: 14,
+                  border: "1px solid #2b2b2b",
+                  borderRadius: 18,
+                  padding: 16,
+                  background: "#0f0f10",
+                  color: "#fff",
                 }}
-              />
+              >
+                {hasVideo ? (
+                  <video
+                    src={videoUrl}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    style={{
+                      width: "100%",
+                      borderRadius: 12,
+                      background: "#000",
+                      marginBottom: 14,
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: "100%",
+                      minHeight: 180,
+                      borderRadius: 12,
+                      background: "#1f1f1f",
+                      marginBottom: 14,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#aaa",
+                      textAlign: "center",
+                      padding: 20,
+                    }}
+                  >
+                    Video unavailable
+                  </div>
+                )}
 
-              <div style={{ fontWeight: 700, marginBottom: 8 }}>Prompt</div>
-              <div style={{ color: "#d4d4d4", marginBottom: 12 }}>{item.prompt}</div>
-
-              <div style={{ color: "#b8b8b8", fontSize: 14, lineHeight: 1.8 }}>
-                <div>Language: {item.language}</div>
-                <div>Duration: {item.duration} seconds</div>
-                <div>Watermark: {item.watermark}</div>
-                <div>Saved: {formatDate(item.createdAtMs)}</div>
-              </div>
-
-              <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
-                <a
-                  href={item.videoUrl}
-                  target="_blank"
-                  rel="noreferrer"
+                <div
                   style={{
-                    padding: "10px 14px",
-                    border: "1px solid #444",
-                    borderRadius: 12,
-                    textDecoration: "none",
-                    color: "#fff",
-                  }}
-                >
-                  Open
-                </a>
-
-                <a
-                  href={item.videoUrl}
-                  download
-                  style={{
-                    padding: "10px 14px",
-                    border: "1px solid #444",
-                    borderRadius: 12,
-                    textDecoration: "none",
-                    color: "#fff",
-                  }}
-                >
-                  Download
-                </a>
-
-                <button
-                  onClick={() => handleDelete(item.id)}
-                  disabled={working}
-                  style={{
-                    padding: "10px 14px",
-                    border: "none",
-                    borderRadius: 12,
-                    cursor: "pointer",
                     fontWeight: 700,
+                    marginBottom: 8,
                   }}
                 >
-                  Delete
-                </button>
+                  Prompt
+                </div>
+
+                <div
+                  style={{
+                    color: "#d4d4d4",
+                    marginBottom: 12,
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {item.prompt || "No prompt"}
+                </div>
+
+                <div
+                  style={{
+                    color: "#b8b8b8",
+                    fontSize: 14,
+                    lineHeight: 1.8,
+                  }}
+                >
+                  <div>Mode: {item.mode}</div>
+                  <div>Language: {item.language}</div>
+                  <div>Duration: {item.duration} seconds</div>
+                  <div>Watermark: {item.watermark}</div>
+                  <div>Status: {item.status}</div>
+                  <div>
+                    Saved: {formatDate(item.createdAtMs)}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    marginTop: 16,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {hasVideo && (
+                    <>
+                      <a
+                        href={videoUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          padding: "10px 14px",
+                          border: "1px solid #444",
+                          borderRadius: 12,
+                          textDecoration: "none",
+                          color: "#fff",
+                        }}
+                      >
+                        Open
+                      </a>
+
+                      <a
+                        href={videoUrl}
+                        download
+                        style={{
+                          padding: "10px 14px",
+                          border: "1px solid #444",
+                          borderRadius: 12,
+                          textDecoration: "none",
+                          color: "#fff",
+                        }}
+                      >
+                        Download
+                      </a>
+                    </>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(item.id)}
+                    disabled={working}
+                    style={{
+                      padding: "10px 14px",
+                      border: "none",
+                      borderRadius: 12,
+                      cursor: working ? "not-allowed" : "pointer",
+                      fontWeight: 700,
+                      opacity: working ? 0.6 : 1,
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </main>

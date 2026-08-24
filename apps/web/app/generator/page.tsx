@@ -33,29 +33,76 @@ type SaveHistoryResponse = {
   error?: string;
 };
 
+type GenerationAccessResponse = {
+  success?: boolean;
+  allowed?: boolean;
+  plan?: "free" | "pro";
+  subscriptionStatus?: string;
+  unlimited?: boolean;
+  usedToday?: number;
+  remaining?: number | null;
+  limit?: number | null;
+  error?: string;
+};
+
 export default function GeneratorPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
 
-  const [plan, setPlan] = useState<UserPlan>("free");
-  const [subscriptionStatus, setSubscriptionStatus] =
-    useState("inactive");
-  const [checkingPlan, setCheckingPlan] = useState(true);
+  const [plan, setPlan] =
+    useState<UserPlan>("free");
 
-  const [mode, setMode] = useState<Mode>("text");
-  const [prompt, setPrompt] = useState("");
-  const [language, setLanguage] = useState("English");
-  const [duration, setDuration] = useState("5");
-  const [watermark, setWatermark] = useState("naijavid.ai");
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [
+    subscriptionStatus,
+    setSubscriptionStatus,
+  ] = useState("inactive");
 
-  const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState("");
-  const [videoUrl, setVideoUrl] = useState("");
+  const [
+    checkingPlan,
+    setCheckingPlan,
+  ] = useState(true);
 
-  // ----------------------------------------------------
-  // LOAD USER PLAN
-  // ----------------------------------------------------
+  const [mode, setMode] =
+    useState<Mode>("text");
+
+  const [prompt, setPrompt] =
+    useState("");
+
+  const [language, setLanguage] =
+    useState("English");
+
+  const [duration, setDuration] =
+    useState("5");
+
+  const [watermark, setWatermark] =
+    useState("naijavid.ai");
+
+  const [imageFile, setImageFile] =
+    useState<File | null>(null);
+
+  const [submitting, setSubmitting] =
+    useState(false);
+
+  const [message, setMessage] =
+    useState("");
+
+  const [videoUrl, setVideoUrl] =
+    useState("");
+
+  const [
+    dailyUsed,
+    setDailyUsed,
+  ] = useState(0);
+
+  const [
+    dailyRemaining,
+    setDailyRemaining,
+  ] = useState<number | null>(3);
+
+  const [
+    checkingAccess,
+    setCheckingAccess,
+  ] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -68,7 +115,9 @@ export default function GeneratorPage() {
       if (!user?.uid) {
         if (active) {
           setPlan("free");
-          setSubscriptionStatus("inactive");
+          setSubscriptionStatus(
+            "inactive"
+          );
           setCheckingPlan(false);
         }
 
@@ -78,30 +127,28 @@ export default function GeneratorPage() {
       try {
         setCheckingPlan(true);
 
-        console.log("AUTH UID:", user.uid);
+        const userRef = doc(
+          db,
+          "users",
+          user.uid
+        );
 
-        const userRef = doc(db, "users", user.uid);
-        const userSnapshot = await getDoc(userRef);
+        const userSnapshot =
+          await getDoc(userRef);
 
         if (!userSnapshot.exists()) {
-          console.log("Firestore user document not found.");
-
           if (active) {
             setPlan("free");
-            setSubscriptionStatus("inactive");
+            setSubscriptionStatus(
+              "inactive"
+            );
           }
 
           return;
         }
 
-        const data = userSnapshot.data();
-
-        console.log("FIRESTORE USER DATA:", data);
-        console.log("PLAN FROM FIRESTORE:", data.plan);
-        console.log(
-          "SUBSCRIPTION STATUS:",
-          data.subscriptionStatus
-        );
+        const data =
+          userSnapshot.data();
 
         if (active) {
           setPlan(
@@ -111,7 +158,8 @@ export default function GeneratorPage() {
           );
 
           setSubscriptionStatus(
-            data.subscriptionStatus === "active"
+            data.subscriptionStatus ===
+              "active"
               ? "active"
               : "inactive"
           );
@@ -124,7 +172,9 @@ export default function GeneratorPage() {
 
         if (active) {
           setPlan("free");
-          setSubscriptionStatus("inactive");
+          setSubscriptionStatus(
+            "inactive"
+          );
         }
       } finally {
         if (active) {
@@ -140,83 +190,147 @@ export default function GeneratorPage() {
     };
   }, [user, loading]);
 
-  // ----------------------------------------------------
-  // PRO STATUS
-  // ----------------------------------------------------
-
   const isPro =
     plan === "pro" &&
     subscriptionStatus === "active";
 
-  // ----------------------------------------------------
-  // DURATION OPTIONS
-  // ----------------------------------------------------
+  useEffect(() => {
+    async function checkGenerationAccess() {
+      if (!user?.uid) {
+        return;
+      }
 
-  const durationOptions = useMemo(() => {
-    if (isPro) {
+      try {
+        setCheckingAccess(true);
+
+        const response = await fetch(
+          "/api/generation-access",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              userId: user.uid,
+              action: "check",
+            }),
+          }
+        );
+
+        const data: GenerationAccessResponse =
+          await response.json();
+
+        if (!response.ok) {
+          console.error(
+            "GENERATION ACCESS CHECK ERROR:",
+            data
+          );
+          return;
+        }
+
+        if (data.unlimited) {
+          setDailyUsed(0);
+          setDailyRemaining(null);
+        } else {
+          setDailyUsed(
+            Number(
+              data.usedToday || 0
+            )
+          );
+
+          setDailyRemaining(
+            typeof data.remaining ===
+              "number"
+              ? data.remaining
+              : 0
+          );
+        }
+      } catch (error) {
+        console.error(
+          "GENERATION ACCESS REQUEST ERROR:",
+          error
+        );
+      } finally {
+        setCheckingAccess(false);
+      }
+    }
+
+    checkGenerationAccess();
+  }, [user, isPro]);
+
+  const durationOptions =
+    useMemo(() => {
+      if (isPro) {
+        return [
+          {
+            label: "5 seconds",
+            value: "5",
+          },
+          {
+            label: "8 seconds",
+            value: "8",
+          },
+        ];
+      }
+
       return [
         {
           label: "5 seconds",
           value: "5",
         },
-        {
-          label: "8 seconds",
-          value: "8",
-        },
       ];
-    }
-
-    return [
-      {
-        label: "5 seconds",
-        value: "5",
-      },
-    ];
-  }, [isPro]);
+    }, [isPro]);
 
   useEffect(() => {
-    if (!isPro && duration !== "5") {
+    if (
+      !isPro &&
+      duration !== "5"
+    ) {
       setDuration("5");
     }
   }, [isPro, duration]);
 
-  // ----------------------------------------------------
-  // BUTTON VALIDATION
-  // ----------------------------------------------------
+  const freeLimitReached =
+    !isPro &&
+    dailyRemaining !== null &&
+    dailyRemaining <= 0;
 
-  const canGenerate = useMemo(() => {
-    if (!isPro) {
-      return false;
-    }
+  const canGenerate =
+    useMemo(() => {
+      if (freeLimitReached) {
+        return false;
+      }
 
-    if (mode === "text") {
-      return prompt.trim().length >= 3;
-    }
+      if (mode === "text") {
+        return (
+          prompt.trim().length >= 3
+        );
+      }
 
-    return (
-      imageFile !== null &&
-      prompt.trim().length >= 3
-    );
-  }, [isPro, mode, prompt, imageFile]);
-
-  // ----------------------------------------------------
-  // IMAGE SELECT
-  // ----------------------------------------------------
+      return (
+        imageFile !== null &&
+        prompt.trim().length >= 3
+      );
+    }, [
+      freeLimitReached,
+      mode,
+      prompt,
+      imageFile,
+    ]);
 
   function handleImageChange(
     event: ChangeEvent<HTMLInputElement>
   ) {
     const selectedFile =
-      event.target.files?.[0] || null;
+      event.target.files?.[0] ||
+      null;
 
     setImageFile(selectedFile);
+
     setMessage("");
     setVideoUrl("");
   }
-
-  // ----------------------------------------------------
-  // SAVE VIDEO TO HISTORY
-  // ----------------------------------------------------
 
   async function saveVideoToHistory(
     generatedVideoUrl: string
@@ -226,31 +340,42 @@ export default function GeneratorPage() {
     }
 
     try {
-      const saveResponse = await fetch(
-        "/api/save-video",
-        {
-          method: "POST",
+      const saveResponse =
+        await fetch(
+          "/api/save-video",
+          {
+            method: "POST",
 
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
 
-          body: JSON.stringify({
-            userId: user.uid,
-            prompt: prompt.trim(),
-            mode,
-            language,
-            duration: Number(duration),
-            videoUrl: generatedVideoUrl,
-            watermark:
-              watermark.trim() ||
-              "naijavid.ai",
-          }),
-        }
-      );
+            body: JSON.stringify({
+              userId: user.uid,
 
-      let saveData: SaveHistoryResponse;
+              prompt:
+                prompt.trim(),
+
+              mode,
+
+              language,
+
+              duration:
+                Number(duration),
+
+              videoUrl:
+                generatedVideoUrl,
+
+              watermark:
+                watermark.trim() ||
+                "naijavid.ai",
+            }),
+          }
+        );
+
+      let saveData:
+        SaveHistoryResponse;
 
       try {
         saveData =
@@ -284,9 +409,57 @@ export default function GeneratorPage() {
     }
   }
 
-  // ----------------------------------------------------
-  // GENERATE VIDEO
-  // ----------------------------------------------------
+  async function incrementGenerationUsage() {
+    if (!user?.uid || isPro) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        "/api/generation-access",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            userId: user.uid,
+            action: "increment",
+          }),
+        }
+      );
+
+      const data: GenerationAccessResponse =
+        await response.json();
+
+      if (!response.ok) {
+        console.error(
+          "GENERATION USAGE INCREMENT ERROR:",
+          data
+        );
+        return;
+      }
+
+      setDailyUsed(
+        Number(
+          data.usedToday || 0
+        )
+      );
+
+      setDailyRemaining(
+        typeof data.remaining ===
+          "number"
+          ? data.remaining
+          : 0
+      );
+    } catch (error) {
+      console.error(
+        "GENERATION USAGE REQUEST ERROR:",
+        error
+      );
+    }
+  }
 
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>
@@ -304,9 +477,9 @@ export default function GeneratorPage() {
       return;
     }
 
-    if (!isPro) {
+    if (freeLimitReached) {
       setMessage(
-        "An active Pro subscription is required."
+        "You have used all 3 free generations for today. Upgrade to Founding Pro for unlimited generations."
       );
 
       return;
@@ -344,6 +517,44 @@ export default function GeneratorPage() {
     );
 
     try {
+      const accessResponse =
+        await fetch(
+          "/api/generation-access",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              userId: user.uid,
+              action: "check",
+            }),
+          }
+        );
+
+      const accessData:
+        GenerationAccessResponse =
+        await accessResponse.json();
+
+      if (!accessResponse.ok) {
+        throw new Error(
+          accessData.error ||
+            "Unable to check generation access."
+        );
+      }
+
+      if (
+        !accessData.allowed &&
+        !accessData.unlimited
+      ) {
+        setDailyRemaining(0);
+
+        throw new Error(
+          "You have used all 3 free generations for today. Upgrade to Founding Pro for unlimited generations."
+        );
+      }
+
       const rawBackendUrl =
         process.env
           .NEXT_PUBLIC_BACKEND_URL ||
@@ -363,11 +574,6 @@ export default function GeneratorPage() {
         );
 
       let response: Response;
-
-      // ------------------------------------------------
-      // TEXT TO VIDEO
-      // POST /generate
-      // ------------------------------------------------
 
       if (mode === "text") {
         response = await fetch(
@@ -395,14 +601,7 @@ export default function GeneratorPage() {
             }),
           }
         );
-      }
-
-      // ------------------------------------------------
-      // IMAGE TO VIDEO
-      // POST /generate-from-image
-      // ------------------------------------------------
-
-      else {
+      } else {
         if (!imageFile) {
           throw new Error(
             "Please select an image."
@@ -447,11 +646,8 @@ export default function GeneratorPage() {
         );
       }
 
-      // ------------------------------------------------
-      // READ GENERATION RESPONSE
-      // ------------------------------------------------
-
-      let data: GenerateResponse;
+      let data:
+        GenerateResponse;
 
       try {
         data =
@@ -461,11 +657,6 @@ export default function GeneratorPage() {
           `Backend returned an invalid response. HTTP ${response.status}.`
         );
       }
-
-      console.log(
-        "GENERATION RESPONSE:",
-        data
-      );
 
       if (!response.ok) {
         throw new Error(
@@ -485,24 +676,20 @@ export default function GeneratorPage() {
         );
       }
 
-      // ------------------------------------------------
-      // SHOW VIDEO
-      // ------------------------------------------------
-
       setVideoUrl(
         generatedVideoUrl
       );
-
-      // ------------------------------------------------
-      // SAVE TO HISTORY
-      // ------------------------------------------------
 
       await saveVideoToHistory(
         generatedVideoUrl
       );
 
+      await incrementGenerationUsage();
+
       setMessage(
-        "Video generated successfully and saved to history."
+        isPro
+          ? "Video generated successfully and saved to history."
+          : "Video generated successfully and saved to history. Your free daily usage has been updated."
       );
     } catch (error) {
       console.error(
@@ -520,19 +707,13 @@ export default function GeneratorPage() {
     }
   }
 
-  // ----------------------------------------------------
-  // LOADING
-  // ----------------------------------------------------
-
   if (
     loading ||
     checkingPlan
   ) {
     return (
       <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
-
         <div className="text-center">
-
           <h1 className="text-3xl font-bold mb-3">
             NaijaVid AI
           </h1>
@@ -540,21 +721,14 @@ export default function GeneratorPage() {
           <p className="text-white/60">
             Checking your account...
           </p>
-
         </div>
-
       </main>
     );
   }
 
-  // ----------------------------------------------------
-  // NOT SIGNED IN
-  // ----------------------------------------------------
-
   if (!user) {
     return (
       <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
-
         <div className="max-w-lg w-full rounded-3xl border border-white/10 bg-white/5 p-8 text-center">
 
           <h1 className="text-3xl font-bold mb-4">
@@ -576,26 +750,18 @@ export default function GeneratorPage() {
           </button>
 
         </div>
-
       </main>
     );
   }
-
-  // ----------------------------------------------------
-  // UI
-  // ----------------------------------------------------
 
   return (
     <main className="min-h-screen bg-black text-white px-5 py-10">
 
       <div className="mx-auto max-w-6xl">
 
-        {/* HEADER */}
-
         <div className="mb-10 flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
 
           <div>
-
             <h1 className="mb-3 text-4xl font-bold md:text-5xl">
               NaijaVid AI Generator
             </h1>
@@ -603,7 +769,6 @@ export default function GeneratorPage() {
             <p className="text-lg text-white/70">
               Generate short videos from text or images.
             </p>
-
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -620,7 +785,7 @@ export default function GeneratorPage() {
                 }
               >
                 {isPro
-                  ? "PRO"
+                  ? "FOUNDING PRO"
                   : "FREE"}
               </strong>
 
@@ -642,19 +807,32 @@ export default function GeneratorPage() {
 
         </div>
 
-        {/* PRO NOTICE */}
-
         {!isPro && (
-
-          <div className="mb-8 rounded-3xl border border-yellow-500/40 bg-yellow-500/10 p-7">
+          <div className="mb-8 rounded-3xl border border-blue-500/30 bg-blue-500/10 p-7">
 
             <h2 className="mb-3 text-2xl font-bold">
-              Pro required
+              Free Plan
             </h2>
 
-            <p className="mb-6 text-white/75">
-              Video generation is available to active Pro users.
+            <p className="text-white/75">
+              Daily usage:{" "}
+              <strong>
+                {dailyUsed} / 3
+              </strong>
             </p>
+
+            <p className="mt-2 text-white/75">
+              Remaining today:{" "}
+              <strong>
+                {dailyRemaining ?? 0}
+              </strong>
+            </p>
+
+            {freeLimitReached && (
+              <p className="mt-4 text-yellow-300">
+                You have reached today&apos;s free limit.
+              </p>
+            )}
 
             <button
               type="button"
@@ -663,23 +841,34 @@ export default function GeneratorPage() {
                   "/pricing"
                 )
               }
-              className="rounded-xl bg-white px-6 py-3 font-semibold text-black"
+              className="mt-6 rounded-xl bg-white px-6 py-3 font-semibold text-black"
             >
-              Upgrade to Pro
+              Upgrade to Founding Pro
+              {" "}
+              ₦5,000/month
             </button>
 
           </div>
-
         )}
 
-        {/* GENERATOR FORM */}
+        {isPro && (
+          <div className="mb-8 rounded-3xl border border-green-500/30 bg-green-500/10 p-6">
+
+            <h2 className="text-xl font-bold text-green-400">
+              Founding Pro
+            </h2>
+
+            <p className="mt-2 text-white/70">
+              Unlimited generations during the introductory launch period, subject to fair use.
+            </p>
+
+          </div>
+        )}
 
         <form
           onSubmit={handleSubmit}
           className="rounded-3xl border border-white/10 bg-gradient-to-br from-[#07102e] to-[#17115f] p-6 md:p-8"
         >
-
-          {/* MODE */}
 
           <div className="mb-8 flex flex-wrap gap-4">
 
@@ -719,10 +908,7 @@ export default function GeneratorPage() {
 
           </div>
 
-          {/* TEXT */}
-
           {mode === "text" && (
-
             <div className="mb-8">
 
               <label className="mb-4 block text-2xl font-bold">
@@ -741,13 +927,9 @@ export default function GeneratorPage() {
               />
 
             </div>
-
           )}
 
-          {/* IMAGE */}
-
           {mode === "image" && (
-
             <div className="mb-8">
 
               <label className="mb-4 block text-2xl font-bold">
@@ -764,12 +946,10 @@ export default function GeneratorPage() {
               />
 
               {imageFile && (
-
                 <p className="mt-4 break-all text-white/75">
                   Selected:{" "}
                   {imageFile.name}
                 </p>
-
               )}
 
               <div className="mt-7">
@@ -789,22 +969,14 @@ export default function GeneratorPage() {
                   className="min-h-[120px] w-full resize-y rounded-2xl border border-white/10 bg-black/80 px-5 py-4 text-white outline-none focus:border-white/40"
                 />
 
-                <p className="mt-2 text-sm text-white/50">
-                  A motion prompt is required.
-                </p>
-
               </div>
 
             </div>
-
           )}
-
-          {/* SETTINGS */}
 
           <div className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-3">
 
             <div>
-
               <label className="mb-3 block text-xl font-bold">
                 Language
               </label>
@@ -818,7 +990,6 @@ export default function GeneratorPage() {
                 }
                 className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-white"
               >
-
                 <option value="English">
                   English
                 </option>
@@ -838,13 +1009,10 @@ export default function GeneratorPage() {
                 <option value="Pidgin">
                   Nigerian Pidgin
                 </option>
-
               </select>
-
             </div>
 
             <div>
-
               <label className="mb-3 block text-xl font-bold">
                 Duration
               </label>
@@ -858,7 +1026,6 @@ export default function GeneratorPage() {
                 }
                 className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-white"
               >
-
                 {durationOptions.map(
                   (option) => (
                     <option
@@ -869,13 +1036,10 @@ export default function GeneratorPage() {
                     </option>
                   )
                 )}
-
               </select>
-
             </div>
 
             <div>
-
               <label className="mb-3 block text-xl font-bold">
                 Watermark
               </label>
@@ -891,49 +1055,35 @@ export default function GeneratorPage() {
                 placeholder="naijavid.ai"
                 className="w-full rounded-2xl border border-white/10 bg-black px-5 py-4 text-white outline-none"
               />
-
             </div>
 
           </div>
-
-          {/* GENERATE */}
 
           <button
             type="submit"
             disabled={
               submitting ||
-              !canGenerate ||
-              !isPro
+              checkingAccess ||
+              !canGenerate
             }
             className="w-full rounded-2xl bg-white py-5 text-xl font-bold text-black transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 md:text-2xl"
           >
-
             {submitting
               ? "Generating Video..."
-              : isPro
-                ? "Generate Video"
-                : "Upgrade to Pro to Generate"}
-
+              : freeLimitReached
+                ? "Daily Free Limit Reached"
+                : "Generate Video"}
           </button>
 
-          {/* MESSAGE */}
-
           {message && (
-
             <div className="mt-6 rounded-2xl border border-white/10 bg-black/40 p-5">
-
               <p className="text-white/90">
                 {message}
               </p>
-
             </div>
-
           )}
 
-          {/* VIDEO */}
-
           {videoUrl && (
-
             <div className="mt-8">
 
               <h2 className="mb-4 text-2xl font-bold">
@@ -944,6 +1094,7 @@ export default function GeneratorPage() {
                 src={videoUrl}
                 controls
                 playsInline
+                preload="metadata"
                 className="w-full rounded-2xl border border-white/10 bg-black"
               />
 
@@ -981,7 +1132,6 @@ export default function GeneratorPage() {
               </div>
 
             </div>
-
           )}
 
         </form>

@@ -1,15 +1,7 @@
-import {
-  NextRequest,
-  NextResponse,
-} from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { FieldValue } from "firebase-admin/firestore";
 
-import {
-  FieldValue,
-} from "firebase-admin/firestore";
-
-import {
-  getAdminDb,
-} from "@/lib/firebase-admin";
+import { getAdminDb } from "@/lib/firebase-admin";
 
 type SaveVideoBody = {
   userId?: string;
@@ -21,46 +13,25 @@ type SaveVideoBody = {
   watermark?: string;
 };
 
-export async function POST(
-  request: NextRequest
-) {
+export async function POST(request: NextRequest) {
   try {
-    const body =
-      (await request.json()) as SaveVideoBody;
+    const body = (await request.json()) as SaveVideoBody;
 
-    const userId =
-      typeof body.userId === "string"
-        ? body.userId.trim()
-        : "";
+    const {
+      userId,
+      prompt,
+      mode,
+      language,
+      duration,
+      videoUrl,
+      watermark,
+    } = body;
 
-    const videoUrl =
-      typeof body.videoUrl === "string"
-        ? body.videoUrl.trim()
-        : "";
+    // ---------------------------------------------
+    // VALIDATION
+    // ---------------------------------------------
 
-    const prompt =
-      typeof body.prompt === "string"
-        ? body.prompt.trim()
-        : "";
-
-    const language =
-      typeof body.language === "string"
-        ? body.language.trim()
-        : "English";
-
-    const watermark =
-      typeof body.watermark === "string"
-        ? body.watermark.trim()
-        : "naijavid.ai";
-
-    const duration =
-      typeof body.duration === "number"
-        ? body.duration
-        : 5;
-
-    const mode = body.mode;
-
-    if (!userId) {
+    if (!userId || typeof userId !== "string") {
       return NextResponse.json(
         {
           success: false,
@@ -72,7 +43,7 @@ export async function POST(
       );
     }
 
-    if (!videoUrl) {
+    if (!videoUrl || typeof videoUrl !== "string") {
       return NextResponse.json(
         {
           success: false,
@@ -84,15 +55,11 @@ export async function POST(
       );
     }
 
-    if (
-      mode !== "text" &&
-      mode !== "image"
-    ) {
+    if (mode !== "text" && mode !== "image") {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "mode must be text or image.",
+          error: "mode must be text or image.",
         },
         {
           status: 400,
@@ -100,55 +67,81 @@ export async function POST(
       );
     }
 
-    const adminDb = getAdminDb();
+    // ---------------------------------------------
+    // FIREBASE ADMIN
+    // ---------------------------------------------
 
-    const videoDocument =
-      await adminDb
-        .collection("videoHistory")
-        .add({
-          userId,
-          prompt,
-          mode,
-          language,
-          duration,
-          videoUrl,
-          watermark,
+    const db = getAdminDb();
 
-          status: "completed",
+    // ---------------------------------------------
+    // SAVE VIDEO HISTORY
+    // ---------------------------------------------
 
-          createdAt:
-            FieldValue.serverTimestamp(),
+    const videoDocument = await db
+      .collection("videoHistory")
+      .add({
+        userId,
 
-          updatedAt:
-            FieldValue.serverTimestamp(),
-        });
+        prompt:
+          typeof prompt === "string"
+            ? prompt.trim()
+            : "",
+
+        mode,
+
+        language:
+          typeof language === "string"
+            ? language.trim()
+            : "English",
+
+        duration:
+          typeof duration === "number"
+            ? duration
+            : 5,
+
+        videoUrl,
+
+        watermark:
+          typeof watermark === "string"
+            ? watermark.trim()
+            : "naijavid.ai",
+
+        status: "completed",
+
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+    // ---------------------------------------------
+    // SUCCESS
+    // ---------------------------------------------
 
     return NextResponse.json(
       {
         success: true,
-        message:
-          "Video saved to history.",
+        message: "Video saved to history.",
         id: videoDocument.id,
       },
       {
         status: 201,
       }
     );
-  } catch (error) {
-    console.error(
-      "SAVE VIDEO SERVER ERROR:",
-      error
-    );
-
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Unable to save video.";
+  } catch (error: any) {
+    console.error("========== SAVE VIDEO ERROR ==========");
+    console.error("MESSAGE:", error?.message);
+    console.error("CODE:", error?.code);
+    console.error("STACK:", error?.stack);
+    console.error("FULL ERROR:", error);
+    console.error("======================================");
 
     return NextResponse.json(
       {
         success: false,
-        error: message,
+        error:
+          error?.message ||
+          "Unable to save video.",
+        code:
+          error?.code ||
+          null,
       },
       {
         status: 500,

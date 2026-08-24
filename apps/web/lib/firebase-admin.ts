@@ -1,79 +1,73 @@
-import {
-  cert,
-  getApps,
-  initializeApp,
-  type App,
-} from "firebase-admin/app";
+import { cert, getApps, initializeApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 
-import {
-  getFirestore,
-  type Firestore,
-} from "firebase-admin/firestore";
+function getServiceAccount() {
+  const encoded = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64?.trim();
 
-let cachedApp: App | null = null;
-let cachedDb: Firestore | null = null;
-
-export function getAdminDb(): Firestore {
-  if (cachedDb) {
-    return cachedDb;
-  }
-
-  const projectId =
-    process.env.FIREBASE_PROJECT_ID?.trim();
-
-  const clientEmail =
-    process.env.FIREBASE_CLIENT_EMAIL?.trim();
-
-  const rawPrivateKey =
-    process.env.FIREBASE_PRIVATE_KEY;
-
-  if (!projectId) {
+  if (!encoded) {
     throw new Error(
-      "Missing FIREBASE_PROJECT_ID"
+      "Missing FIREBASE_SERVICE_ACCOUNT_BASE64"
     );
   }
 
-  if (!clientEmail) {
+  try {
+    const jsonText = Buffer.from(
+      encoded,
+      "base64"
+    ).toString("utf8");
+
+    const serviceAccount = JSON.parse(
+      jsonText
+    );
+
+    if (!serviceAccount.project_id) {
+      throw new Error(
+        "Service account missing project_id"
+      );
+    }
+
+    if (!serviceAccount.client_email) {
+      throw new Error(
+        "Service account missing client_email"
+      );
+    }
+
+    if (!serviceAccount.private_key) {
+      throw new Error(
+        "Service account missing private_key"
+      );
+    }
+
+    return serviceAccount;
+  } catch (error) {
     throw new Error(
-      "Missing FIREBASE_CLIENT_EMAIL"
+      `Unable to decode Firebase service account: ${
+        error instanceof Error
+          ? error.message
+          : "Unknown error"
+      }`
     );
   }
+}
 
-  if (!rawPrivateKey) {
-    throw new Error(
-      "Missing FIREBASE_PRIVATE_KEY"
-    );
-  }
+export function getAdminDb() {
+  if (!getApps().length) {
+    const serviceAccount =
+      getServiceAccount();
 
-  const privateKey = rawPrivateKey
-    .replace(/^"(.*)"$/s, "$1")
-    .replace(/\\n/g, "\n");
-
-  if (
-    !privateKey.includes(
-      "-----BEGIN PRIVATE KEY-----"
-    )
-  ) {
-    throw new Error(
-      "FIREBASE_PRIVATE_KEY format is invalid"
-    );
-  }
-
-  const existingApps = getApps();
-
-  if (existingApps.length > 0) {
-    cachedApp = existingApps[0];
-  } else {
-    cachedApp = initializeApp({
+    initializeApp({
       credential: cert({
-        projectId,
-        clientEmail,
-        privateKey,
+        projectId:
+          serviceAccount.project_id,
+
+        clientEmail:
+          serviceAccount.client_email,
+
+        privateKey:
+          serviceAccount.private_key,
       }),
     });
   }
 
-  cachedDb = getFirestore(cachedApp);
-
-  return cachedDb;
+  return getFirestore();
 }
