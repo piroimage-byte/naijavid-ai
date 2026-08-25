@@ -8,66 +8,76 @@ import {
   getFirestore,
 } from "firebase-admin/firestore";
 
-function getFirebaseAdminCredentials() {
-  const projectId =
-    process.env.FIREBASE_PROJECT_ID?.trim();
+type FirebaseServiceAccount = {
+  project_id: string;
+  client_email: string;
+  private_key: string;
+};
 
-  const clientEmail =
-    process.env.FIREBASE_CLIENT_EMAIL?.trim();
+function getServiceAccount(): FirebaseServiceAccount {
+  const encoded =
+    process.env.FIREBASE_SERVICE_ACCOUNT_BASE64?.trim();
 
-  let privateKey =
-    process.env.FIREBASE_PRIVATE_KEY?.trim();
-
-  if (!projectId) {
+  if (!encoded) {
     throw new Error(
-      "Missing FIREBASE_PROJECT_ID"
+      "Missing FIREBASE_SERVICE_ACCOUNT_BASE64"
     );
   }
 
-  if (!clientEmail) {
+  try {
+    const decoded = Buffer.from(
+      encoded,
+      "base64"
+    ).toString("utf8");
+
+    const serviceAccount =
+      JSON.parse(decoded) as FirebaseServiceAccount;
+
+    if (!serviceAccount.project_id) {
+      throw new Error(
+        "Service account is missing project_id"
+      );
+    }
+
+    if (!serviceAccount.client_email) {
+      throw new Error(
+        "Service account is missing client_email"
+      );
+    }
+
+    if (!serviceAccount.private_key) {
+      throw new Error(
+        "Service account is missing private_key"
+      );
+    }
+
+    return serviceAccount;
+  } catch (error) {
     throw new Error(
-      "Missing FIREBASE_CLIENT_EMAIL"
+      `Unable to read Firebase service account: ${
+        error instanceof Error
+          ? error.message
+          : "Unknown error"
+      }`
     );
   }
-
-  if (!privateKey) {
-    throw new Error(
-      "Missing FIREBASE_PRIVATE_KEY"
-    );
-  }
-
-  /*
-    Vercel may store newline characters
-    inside the private key as literal \n.
-    Convert them back to real newlines.
-  */
-  privateKey =
-    privateKey.replace(
-      /\\n/g,
-      "\n"
-    );
-
-  return {
-    projectId,
-    clientEmail,
-    privateKey,
-  };
 }
 
 export function getAdminDb() {
   if (!getApps().length) {
-    const {
-      projectId,
-      clientEmail,
-      privateKey,
-    } =
-      getFirebaseAdminCredentials();
+    const serviceAccount =
+      getServiceAccount();
 
     initializeApp({
       credential: cert({
-        projectId,
-        clientEmail,
-        privateKey,
+        projectId:
+          serviceAccount.project_id,
+
+        clientEmail:
+          serviceAccount.client_email,
+
+        privateKey:
+          serviceAccount.private_key,
       }),
     });
   }
