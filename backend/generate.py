@@ -41,6 +41,16 @@ JPEG_QUALITY = 88
 
 
 # =========================================================
+# PILLOW COMPATIBILITY
+# =========================================================
+
+try:
+    RESAMPLE_LANCZOS = Image.Resampling.LANCZOS
+except AttributeError:
+    RESAMPLE_LANCZOS = Image.LANCZOS
+
+
+# =========================================================
 # FONT
 # =========================================================
 
@@ -365,7 +375,7 @@ def fit_image_to_canvas(
             VIDEO_WIDTH,
             VIDEO_HEIGHT,
         ),
-        Image.LANCZOS,
+        RESAMPLE_LANCZOS,
     )
 
     canvas = Image.new(
