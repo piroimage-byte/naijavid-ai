@@ -48,10 +48,7 @@ function normalizeAccess(data: any): GenerationAccess {
   const limit =
     plan === "pro"
       ? null
-      : Number(
-          data?.limit ??
-            3
-        );
+      : Number(data?.limit ?? 3);
 
   const remaining =
     limit === null
@@ -95,7 +92,6 @@ function normalizeAccess(data: any): GenerationAccess {
 export default function GeneratorPage() {
   const router = useRouter();
 
-  // AUTH
   const [user, setUser] =
     useState<User | null>(
       null
@@ -107,7 +103,6 @@ export default function GeneratorPage() {
   ] =
     useState(true);
 
-  // GENERATOR
   const [mode, setMode] =
     useState<Mode>("text");
 
@@ -152,7 +147,6 @@ export default function GeneratorPage() {
   const [error, setError] =
     useState("");
 
-  // PLAN
   const [
     generationAccess,
     setGenerationAccess,
@@ -175,15 +169,15 @@ export default function GeneratorPage() {
     const unsubscribe =
       onAuthStateChanged(
         auth,
-        (
-          firebaseUser
-        ) => {
+        (firebaseUser) => {
           if (!firebaseUser) {
             setUser(null);
             setAuthLoading(false);
+
             router.replace(
               "/login"
             );
+
             return;
           }
 
@@ -295,8 +289,7 @@ export default function GeneratorPage() {
     event: ChangeEvent<HTMLInputElement>
   ) {
     const file =
-      event.target
-        .files?.[0];
+      event.target.files?.[0];
 
     if (!file) {
       setImageFile(
@@ -463,12 +456,13 @@ export default function GeneratorPage() {
 
   // --------------------------------------------------
   // TEXT TO VIDEO
+  // CORRECT BACKEND ENDPOINT: /generate
   // --------------------------------------------------
 
   async function generateTextVideo() {
     const response =
       await fetch(
-        `${BACKEND_URL}/text-to-video`,
+        `${BACKEND_URL}/generate`,
         {
           method:
             "POST",
@@ -490,15 +484,21 @@ export default function GeneratorPage() {
         }
       );
 
-    const data =
-      await response.json();
+    let data: any = null;
+
+    try {
+      data =
+        await response.json();
+    } catch {
+      data = null;
+    }
 
     if (!response.ok) {
       throw new Error(
         data?.detail ||
           data?.error ||
           data?.message ||
-          "Text-to-video generation failed."
+          `Text-to-video generation failed with status ${response.status}.`
       );
     }
 
@@ -506,7 +506,8 @@ export default function GeneratorPage() {
       data?.videoUrl ||
       data?.video_url ||
       data?.url ||
-      data?.output_url;
+      data?.output_url ||
+      data?.output;
 
     if (!generatedUrl) {
       throw new Error(
@@ -519,6 +520,7 @@ export default function GeneratorPage() {
 
   // --------------------------------------------------
   // IMAGE TO VIDEO
+  // CORRECT BACKEND ENDPOINT: /generate-from-image
   // --------------------------------------------------
 
   async function generateImageVideo() {
@@ -558,7 +560,7 @@ export default function GeneratorPage() {
 
     const response =
       await fetch(
-        `${BACKEND_URL}/image-to-video`,
+        `${BACKEND_URL}/generate-from-image`,
         {
           method:
             "POST",
@@ -568,15 +570,21 @@ export default function GeneratorPage() {
         }
       );
 
-    const data =
-      await response.json();
+    let data: any = null;
+
+    try {
+      data =
+        await response.json();
+    } catch {
+      data = null;
+    }
 
     if (!response.ok) {
       throw new Error(
         data?.detail ||
           data?.error ||
           data?.message ||
-          "Image-to-video generation failed."
+          `Image-to-video generation failed with status ${response.status}.`
       );
     }
 
@@ -584,7 +592,8 @@ export default function GeneratorPage() {
       data?.videoUrl ||
       data?.video_url ||
       data?.url ||
-      data?.output_url;
+      data?.output_url ||
+      data?.output;
 
     if (!generatedUrl) {
       throw new Error(
@@ -617,7 +626,7 @@ export default function GeneratorPage() {
 
     if (!prompt.trim()) {
       setError(
-        "A motion prompt is required."
+        "A prompt is required."
       );
 
       return;
@@ -675,8 +684,6 @@ export default function GeneratorPage() {
         generatedUrl
       );
 
-      // Free users only.
-      // Count usage after successful generation.
       if (
         access.plan ===
         "free"
@@ -921,6 +928,7 @@ export default function GeneratorPage() {
           }
           className="rounded-3xl border border-blue-500/30 bg-gradient-to-b from-blue-950/70 to-indigo-950/70 p-6 md:p-8"
         >
+
           {/* MODE */}
 
           <div className="flex flex-wrap gap-4 mb-8">
@@ -959,7 +967,7 @@ export default function GeneratorPage() {
             </button>
           </div>
 
-          {/* IMAGE */}
+          {/* IMAGE UPLOAD */}
 
           {mode ===
             "image" && (
@@ -1018,8 +1026,6 @@ export default function GeneratorPage() {
 
           <div className="grid md:grid-cols-3 gap-6 mb-8">
 
-            {/* LANGUAGE */}
-
             <div>
               <label className="block text-xl font-bold mb-3">
                 Language
@@ -1061,8 +1067,6 @@ export default function GeneratorPage() {
               </select>
             </div>
 
-            {/* DURATION */}
-
             <div>
               <label className="block text-xl font-bold mb-3">
                 Duration
@@ -1093,8 +1097,6 @@ export default function GeneratorPage() {
                 </option>
               </select>
             </div>
-
-            {/* WATERMARK */}
 
             <div>
               <label className="block text-xl font-bold mb-3">
