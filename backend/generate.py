@@ -1441,9 +1441,6 @@ def generate_elevenlabs_yoruba_audio(
 
         "model_id":
             ELEVENLABS_TTS_MODEL,
-
-        "language_code":
-            "yo",
     }
 
     try:
