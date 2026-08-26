@@ -1307,6 +1307,39 @@ def save_frame_as_image(
 # TEXT TO SPEECH
 # =========================================================
 
+# =========================================================
+# ELEVENLABS YORUBA TTS SETTINGS
+# =========================================================
+
+ELEVENLABS_API_KEY = (
+    os.getenv(
+        "ELEVENLABS_API_KEY",
+        "",
+    )
+    .strip()
+)
+
+ELEVENLABS_VOICE_ID = (
+    os.getenv(
+        "ELEVENLABS_VOICE_ID",
+        "JBFqnCBsd6RMkjVDRZzb",
+    )
+    .strip()
+)
+
+ELEVENLABS_TTS_MODEL = (
+    os.getenv(
+        "ELEVENLABS_TTS_MODEL",
+        "eleven_v3",
+    )
+    .strip()
+)
+
+ELEVENLABS_TTS_ENDPOINT = (
+    "https://api.elevenlabs.io/v1/text-to-speech"
+)
+
+
 TTS_ENABLED = (
     os.getenv(
         "NAIJAVID_TTS_ENABLED",
@@ -1354,6 +1387,135 @@ def get_tts_language_code(
     return code
 
 
+def generate_elevenlabs_yoruba_audio(
+    text: str,
+) -> Path | None:
+
+    cleaned_text = (
+        text or ""
+    ).strip()
+
+    if not cleaned_text:
+        return None
+
+    if not ELEVENLABS_API_KEY:
+        print(
+            "NaijaVid ElevenLabs warning: "
+            "ELEVENLABS_API_KEY is missing."
+        )
+        return None
+
+    if not ELEVENLABS_VOICE_ID:
+        print(
+            "NaijaVid ElevenLabs warning: "
+            "ELEVENLABS_VOICE_ID is missing."
+        )
+        return None
+
+    output_path = (
+        GENERATED_DIR
+        / new_filename(
+            "_yoruba_elevenlabs.mp3"
+        )
+    )
+
+    url = (
+        f"{ELEVENLABS_TTS_ENDPOINT}/"
+        f"{ELEVENLABS_VOICE_ID}"
+    )
+
+    headers = {
+        "xi-api-key":
+            ELEVENLABS_API_KEY,
+
+        "Content-Type":
+            "application/json",
+
+        "Accept":
+            "audio/mpeg",
+    }
+
+    payload = {
+        "text":
+            cleaned_text,
+
+        "model_id":
+            ELEVENLABS_TTS_MODEL,
+
+        "language_code":
+            "yo",
+    }
+
+    try:
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            params={
+                "output_format":
+                    "mp3_44100_128",
+            },
+            timeout=120,
+        )
+
+    except requests.RequestException as exc:
+        print(
+            "NaijaVid ElevenLabs Yoruba request failed:",
+            str(exc),
+        )
+        return None
+
+    if not response.ok:
+        try:
+            error_message = (
+                response.json()
+            )
+        except Exception:
+            error_message = (
+                response.text
+            )
+
+        print(
+            "NaijaVid ElevenLabs Yoruba error:",
+            response.status_code,
+            error_message,
+        )
+
+        cleanup_file(
+            output_path
+        )
+
+        return None
+
+    try:
+        output_path.write_bytes(
+            response.content
+        )
+
+    except Exception as exc:
+        print(
+            "NaijaVid ElevenLabs Yoruba save error:",
+            str(exc),
+        )
+
+        cleanup_file(
+            output_path
+        )
+
+        return None
+
+    if (
+        not output_path.exists()
+        or output_path.stat().st_size == 0
+    ):
+        cleanup_file(
+            output_path
+        )
+        return None
+
+    return output_path
+
+
 def generate_tts_audio(
     text: str,
     language: str,
@@ -1375,6 +1537,28 @@ def generate_tts_audio(
         )
     )
 
+    # -----------------------------------------------------
+    # YORUBA -> ELEVENLABS
+    # -----------------------------------------------------
+
+    if normalized_language == "Yoruba":
+        yoruba_audio = (
+            generate_elevenlabs_yoruba_audio(
+                cleaned_text
+            )
+        )
+
+        if yoruba_audio is not None:
+            return yoruba_audio
+
+        # Do not force Yoruba through English gTTS.
+        # If ElevenLabs fails, return silent video and log the real error.
+        return None
+
+    # -----------------------------------------------------
+    # OTHER LANGUAGES -> EXISTING GTTS DEVELOPMENT ENGINE
+    # -----------------------------------------------------
+
     tts_code = (
         get_tts_language_code(
             normalized_language
@@ -1389,8 +1573,6 @@ def generate_tts_audio(
     )
 
     try:
-        # gTTS is being used only as a development/fallback voice engine.
-        # It requires outbound internet access but no OpenAI API credits.
         tts = gTTS(
             text=cleaned_text,
             lang=tts_code,
@@ -1408,15 +1590,21 @@ def generate_tts_audio(
             output_path
         )
 
-        # Voice failure should not destroy otherwise valid video generation.
         print(
-            "NaijaVid TTS warning:",
+            "NaijaVid gTTS warning "
+            f"[{normalized_language}/{tts_code}]:",
             str(exc),
         )
 
         return None
 
-    if not output_path.exists():
+    if (
+        not output_path.exists()
+        or output_path.stat().st_size == 0
+    ):
+        cleanup_file(
+            output_path
+        )
         return None
 
     return output_path
