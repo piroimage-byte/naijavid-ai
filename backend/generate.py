@@ -1441,9 +1441,6 @@ def generate_elevenlabs_yoruba_audio(
 
         "model_id":
             ELEVENLABS_TTS_MODEL,
-
-        "language_code":
-            "yo",
     }
 
     try:
@@ -1941,85 +1938,64 @@ def generate_image_video(
     watermark: str,
 ) -> str:
 
-    language = (
-        normalize_language(
-            language
-        )
-    )
+    language = normalize_language(language)
+
+    cleaned_prompt = (prompt or "").strip()
 
     canvas = None
     frame_path = None
     audio_path = None
 
     try:
-
-        with Image.open(
-            image_path
-        ) as source:
-
-            canvas = (
-                fit_image_to_canvas(
-                    source
-                )
-            )
+        # -------------------------------------------------
+        # LOAD USER IMAGE
+        # -------------------------------------------------
+        with Image.open(image_path) as source:
+            canvas = fit_image_to_canvas(source)
 
         # -------------------------------------------------
-        # Language indicator
+        # LANGUAGE INDICATOR
         # -------------------------------------------------
-
-        canvas = (
-            apply_language_badge(
-                canvas,
-                language,
-            )
+        canvas = apply_language_badge(
+            canvas,
+            language,
         )
 
         # -------------------------------------------------
-        # Caption
+        # CAPTION
         # -------------------------------------------------
-
-        if (
-            prompt.strip()
-        ):
-
-            canvas = (
-                apply_caption(
-                    canvas,
-                    prompt,
-                )
-            )
-
-        # -------------------------------------------------
-        # Watermark
-        # -------------------------------------------------
-
-        canvas = (
-            apply_watermark(
+        if cleaned_prompt:
+            canvas = apply_caption(
                 canvas,
-                watermark,
+                cleaned_prompt,
             )
+
+        # -------------------------------------------------
+        # WATERMARK
+        # -------------------------------------------------
+        canvas = apply_watermark(
+            canvas,
+            watermark,
         )
 
-        frame_path = (
-            save_frame_as_image(
-                canvas,
-                "_image_video_frame.jpg",
-            )
+        # -------------------------------------------------
+        # SAVE VIDEO FRAME
+        # -------------------------------------------------
+        frame_path = save_frame_as_image(
+            canvas,
+            "_image_video_frame.jpg",
         )
 
     finally:
-
         if canvas is not None:
-
             try:
                 canvas.close()
-
             except Exception:
                 pass
 
         gc.collect()
 
-        if frame_path is None:
+    if frame_path is None:
         raise RuntimeError(
             "Unable to create image video frame."
         )
@@ -2027,13 +2003,6 @@ def generate_image_video(
     # =====================================================
     # GENERATE NARRATION FOR IMAGE-TO-VIDEO
     # =====================================================
-
-    audio_path = None
-
-    cleaned_prompt = (
-        prompt or ""
-    ).strip()
-
     if cleaned_prompt:
         try:
             audio_path = generate_tts_audio(
@@ -2057,9 +2026,7 @@ def generate_image_video(
                 "NaijaVid Image-to-Video TTS error:",
                 str(exc),
             )
-
             audio_path = None
-
     else:
         print(
             "NaijaVid Image-to-Video: "
@@ -2069,7 +2036,6 @@ def generate_image_video(
     # =====================================================
     # CREATE FINAL VIDEO
     # =====================================================
-
     return save_cinematic_video(
         frame_path=frame_path,
         duration=duration,
