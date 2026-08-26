@@ -2019,13 +2019,60 @@ def generate_image_video(
 
         gc.collect()
 
-    if frame_path is None:
-
+        if frame_path is None:
         raise RuntimeError(
             "Unable to create image video frame."
         )
 
+    # =====================================================
+    # GENERATE NARRATION FOR IMAGE-TO-VIDEO
+    # =====================================================
+
+    audio_path = None
+
+    cleaned_prompt = (
+        prompt or ""
+    ).strip()
+
+    if cleaned_prompt:
+        try:
+            audio_path = generate_tts_audio(
+                text=cleaned_prompt,
+                language=language,
+            )
+
+            if audio_path is not None:
+                print(
+                    "NaijaVid Image-to-Video narration generated:",
+                    language,
+                )
+            else:
+                print(
+                    "NaijaVid Image-to-Video narration unavailable:",
+                    language,
+                )
+
+        except Exception as exc:
+            print(
+                "NaijaVid Image-to-Video TTS error:",
+                str(exc),
+            )
+
+            audio_path = None
+
+    else:
+        print(
+            "NaijaVid Image-to-Video: "
+            "no prompt supplied, creating video without narration."
+        )
+
+    # =====================================================
+    # CREATE FINAL VIDEO
+    # =====================================================
+
     return save_cinematic_video(
         frame_path=frame_path,
         duration=duration,
+        audio_path=audio_path,
+    )
     )
