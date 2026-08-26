@@ -2,8 +2,39 @@ import gc
 import uuid
 from pathlib import Path
 
-from moviepy.editor import ImageClip
+# =========================================================
+# PILLOW FIRST
+# =========================================================
+
 from PIL import Image, ImageDraw, ImageFont, ImageOps
+
+
+# =========================================================
+# PILLOW / MOVIEPY COMPATIBILITY
+# =========================================================
+
+# MoviePy 1.0.3 may still use Image.ANTIALIAS.
+# Pillow 10+ removed that attribute.
+# Restore it before importing MoviePy.
+
+if not hasattr(Image, "ANTIALIAS"):
+    if hasattr(Image, "Resampling"):
+        Image.ANTIALIAS = Image.Resampling.LANCZOS
+    else:
+        Image.ANTIALIAS = Image.LANCZOS
+
+
+if hasattr(Image, "Resampling"):
+    RESAMPLE_LANCZOS = Image.Resampling.LANCZOS
+else:
+    RESAMPLE_LANCZOS = Image.LANCZOS
+
+
+# =========================================================
+# MOVIEPY
+# =========================================================
+
+from moviepy.editor import ImageClip
 
 
 # =========================================================
@@ -38,16 +69,6 @@ FPS = 12
 MAX_DURATION_SECONDS = 8
 
 JPEG_QUALITY = 88
-
-
-# =========================================================
-# PILLOW COMPATIBILITY
-# =========================================================
-
-try:
-    RESAMPLE_LANCZOS = Image.Resampling.LANCZOS
-except AttributeError:
-    RESAMPLE_LANCZOS = Image.LANCZOS
 
 
 # =========================================================
