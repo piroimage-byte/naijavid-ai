@@ -36,19 +36,25 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "http://localhost:8000";
 
-function normalizeAccess(data: any): GenerationAccess {
+function normalizeAccess(
+  data: any
+): GenerationAccess {
   const plan =
     data?.plan === "pro"
       ? "pro"
       : "free";
 
   const usedToday =
-    Number(data?.usedToday ?? 0);
+    Number(
+      data?.usedToday ?? 0
+    );
 
   const limit =
     plan === "pro"
       ? null
-      : Number(data?.limit ?? 3);
+      : Number(
+          data?.limit ?? 3
+        );
 
   const remaining =
     limit === null
@@ -60,7 +66,9 @@ function normalizeAccess(data: any): GenerationAccess {
 
   return {
     allowed:
-      Boolean(data?.allowed),
+      Boolean(
+        data?.allowed
+      ),
 
     plan,
 
@@ -70,7 +78,9 @@ function normalizeAccess(data: any): GenerationAccess {
         : "inactive",
 
     unlimited:
-      Boolean(data?.unlimited),
+      Boolean(
+        data?.unlimited
+      ),
 
     usedToday,
 
@@ -89,10 +99,104 @@ function normalizeAccess(data: any): GenerationAccess {
   };
 }
 
-export default function GeneratorPage() {
-  const router = useRouter();
+function extractErrorMessage(
+  data: any,
+  fallback: string
+) {
+  const detail =
+    data?.detail;
 
-  const [user, setUser] =
+  if (
+    typeof detail ===
+    "string"
+  ) {
+    return detail;
+  }
+
+  if (
+    Array.isArray(detail)
+  ) {
+    return detail
+      .map(
+        (item: any) => {
+          if (
+            typeof item?.msg ===
+            "string"
+          ) {
+            const location =
+              Array.isArray(
+                item?.loc
+              )
+                ? item.loc.join(
+                    "."
+                  )
+                : "";
+
+            return location
+              ? `${location}: ${item.msg}`
+              : item.msg;
+          }
+
+          return JSON.stringify(
+            item
+          );
+        }
+      )
+      .join(", ");
+  }
+
+  if (
+    detail &&
+    typeof detail ===
+      "object"
+  ) {
+    try {
+      return JSON.stringify(
+        detail
+      );
+    } catch {
+      return fallback;
+    }
+  }
+
+  if (
+    typeof data?.error ===
+    "string"
+  ) {
+    return data.error;
+  }
+
+  if (
+    typeof data?.message ===
+    "string"
+  ) {
+    return data.message;
+  }
+
+  return fallback;
+}
+
+function getVideoUrl(
+  data: any
+) {
+  return (
+    data?.videoUrl ||
+    data?.video_url ||
+    data?.url ||
+    data?.output_url ||
+    data?.output ||
+    null
+  );
+}
+
+export default function GeneratorPage() {
+  const router =
+    useRouter();
+
+  const [
+    user,
+    setUser,
+  ] =
     useState<User | null>(
       null
     );
@@ -103,20 +207,41 @@ export default function GeneratorPage() {
   ] =
     useState(true);
 
-  const [mode, setMode] =
-    useState<Mode>("text");
+  const [
+    mode,
+    setMode,
+  ] =
+    useState<Mode>(
+      "text"
+    );
 
-  const [prompt, setPrompt] =
+  const [
+    prompt,
+    setPrompt,
+  ] =
     useState("");
 
-  const [language, setLanguage] =
-    useState("English");
+  const [
+    language,
+    setLanguage,
+  ] =
+    useState(
+      "English"
+    );
 
-  const [duration, setDuration] =
+  const [
+    duration,
+    setDuration,
+  ] =
     useState(5);
 
-  const [watermark, setWatermark] =
-    useState("naijavid.ai");
+  const [
+    watermark,
+    setWatermark,
+  ] =
+    useState(
+      "naijavid.ai"
+    );
 
   const [
     imageFile,
@@ -132,7 +257,10 @@ export default function GeneratorPage() {
   ] =
     useState("");
 
-  const [videoUrl, setVideoUrl] =
+  const [
+    videoUrl,
+    setVideoUrl,
+  ] =
     useState("");
 
   const [
@@ -141,10 +269,16 @@ export default function GeneratorPage() {
   ] =
     useState(false);
 
-  const [message, setMessage] =
+  const [
+    message,
+    setMessage,
+  ] =
     useState("");
 
-  const [error, setError] =
+  const [
+    error,
+    setError,
+  ] =
     useState("");
 
   const [
@@ -161,18 +295,27 @@ export default function GeneratorPage() {
   ] =
     useState(true);
 
-  // --------------------------------------------------
-  // AUTH CHECK
-  // --------------------------------------------------
+  // ======================================================
+  // AUTH
+  // ======================================================
 
   useEffect(() => {
     const unsubscribe =
       onAuthStateChanged(
         auth,
-        (firebaseUser) => {
-          if (!firebaseUser) {
-            setUser(null);
-            setAuthLoading(false);
+        (
+          firebaseUser
+        ) => {
+          if (
+            !firebaseUser
+          ) {
+            setUser(
+              null
+            );
+
+            setAuthLoading(
+              false
+            );
 
             router.replace(
               "/login"
@@ -195,9 +338,9 @@ export default function GeneratorPage() {
       unsubscribe();
   }, [router]);
 
-  // --------------------------------------------------
+  // ======================================================
   // LOAD ACCESS
-  // --------------------------------------------------
+  // ======================================================
 
   useEffect(() => {
     if (!user) {
@@ -246,18 +389,17 @@ export default function GeneratorPage() {
           !data.success
         ) {
           throw new Error(
-            data?.error ||
+            extractErrorMessage(
+              data,
               "Unable to check generation access."
+            )
           );
         }
 
-        const access =
+        setGenerationAccess(
           normalizeAccess(
             data
-          );
-
-        setGenerationAccess(
-          access
+          )
         );
       } catch (
         err: any
@@ -281,9 +423,9 @@ export default function GeneratorPage() {
     loadAccess();
   }, [user]);
 
-  // --------------------------------------------------
+  // ======================================================
   // IMAGE UPLOAD
-  // --------------------------------------------------
+  // ======================================================
 
   function handleImageChange(
     event: ChangeEvent<HTMLInputElement>
@@ -303,7 +445,31 @@ export default function GeneratorPage() {
       return;
     }
 
-    setImageFile(file);
+    if (
+      !file.type.startsWith(
+        "image/"
+      )
+    ) {
+      setError(
+        "Please select a valid image file."
+      );
+
+      return;
+    }
+
+    setError("");
+
+    setImageFile(
+      file
+    );
+
+    if (
+      imagePreview
+    ) {
+      URL.revokeObjectURL(
+        imagePreview
+      );
+    }
 
     const previewUrl =
       URL.createObjectURL(
@@ -315,9 +481,9 @@ export default function GeneratorPage() {
     );
   }
 
-  // --------------------------------------------------
-  // ACCESS CHECK / INCREMENT
-  // --------------------------------------------------
+  // ======================================================
+  // GENERATION ACCESS
+  // ======================================================
 
   async function updateGenerationAccess(
     action:
@@ -327,7 +493,9 @@ export default function GeneratorPage() {
     const currentUser =
       auth.currentUser;
 
-    if (!currentUser) {
+    if (
+      !currentUser
+    ) {
       throw new Error(
         "You must sign in first."
       );
@@ -337,7 +505,8 @@ export default function GeneratorPage() {
       await fetch(
         "/api/generation-access",
         {
-          method: "POST",
+          method:
+            "POST",
 
           headers: {
             "Content-Type":
@@ -364,8 +533,10 @@ export default function GeneratorPage() {
       !data.success
     ) {
       throw new Error(
-        data?.error ||
+        extractErrorMessage(
+          data,
           "Unable to check generation access."
+        )
       );
     }
 
@@ -381,9 +552,9 @@ export default function GeneratorPage() {
     return updated;
   }
 
-  // --------------------------------------------------
+  // ======================================================
   // SAVE HISTORY
-  // --------------------------------------------------
+  // ======================================================
 
   async function saveVideoToHistory(
     generatedVideoUrl: string
@@ -391,7 +562,9 @@ export default function GeneratorPage() {
     const currentUser =
       auth.currentUser;
 
-    if (!currentUser) {
+    if (
+      !currentUser
+    ) {
       return false;
     }
 
@@ -444,7 +617,9 @@ export default function GeneratorPage() {
       }
 
       return true;
-    } catch (err) {
+    } catch (
+      err
+    ) {
       console.error(
         "HISTORY SAVE ERROR:",
         err
@@ -454,10 +629,10 @@ export default function GeneratorPage() {
     }
   }
 
-  // --------------------------------------------------
+  // ======================================================
   // TEXT TO VIDEO
-  // CORRECT BACKEND ENDPOINT: /generate
-  // --------------------------------------------------
+  // FastAPI endpoint: POST /generate
+  // ======================================================
 
   async function generateTextVideo() {
     const response =
@@ -475,56 +650,82 @@ export default function GeneratorPage() {
           body:
             JSON.stringify(
               {
-                prompt,
+                prompt:
+                  prompt.trim(),
+
                 language,
+
                 duration,
-                watermark,
+
+                watermark:
+                  watermark.trim() ||
+                  "naijavid.ai",
               }
             ),
         }
       );
 
-    let data: any = null;
+    let data: any =
+      null;
 
     try {
       data =
         await response.json();
     } catch {
-      data = null;
+      data =
+        null;
     }
 
-    if (!response.ok) {
+    if (
+      !response.ok
+    ) {
       throw new Error(
-        data?.detail ||
-          data?.error ||
-          data?.message ||
+        extractErrorMessage(
+          data,
           `Text-to-video generation failed with status ${response.status}.`
+        )
       );
     }
 
     const generatedUrl =
-      data?.videoUrl ||
-      data?.video_url ||
-      data?.url ||
-      data?.output_url ||
-      data?.output;
+      getVideoUrl(
+        data
+      );
 
-    if (!generatedUrl) {
+    if (
+      !generatedUrl
+    ) {
+      console.error(
+        "TEXT GENERATION RESPONSE:",
+        data
+      );
+
       throw new Error(
-        "Backend did not return a video URL."
+        "Backend generated a response but did not return a video URL."
       );
     }
 
-    return generatedUrl;
+    return String(
+      generatedUrl
+    );
   }
 
-  // --------------------------------------------------
+  // ======================================================
   // IMAGE TO VIDEO
-  // CORRECT BACKEND ENDPOINT: /generate-from-image
-  // --------------------------------------------------
+  // FastAPI endpoint: POST /generate-from-image
+  //
+  // REQUIRED FORM FIELDS:
+  // image
+  // prompt
+  // language
+  // duration
+  // watermark
+  // ======================================================
 
   async function generateImageVideo() {
-    if (!imageFile) {
+    if (
+      !imageFile
+    ) {
       throw new Error(
         "Please select an image."
       );
@@ -533,14 +734,17 @@ export default function GeneratorPage() {
     const formData =
       new FormData();
 
+    // IMPORTANT:
+    // Backend expects "image", NOT "file".
     formData.append(
-      "file",
-      imageFile
+      "image",
+      imageFile,
+      imageFile.name
     );
 
     formData.append(
       "prompt",
-      prompt
+      prompt.trim()
     );
 
     formData.append(
@@ -550,12 +754,15 @@ export default function GeneratorPage() {
 
     formData.append(
       "duration",
-      String(duration)
+      String(
+        duration
+      )
     );
 
     formData.append(
       "watermark",
-      watermark
+      watermark.trim() ||
+        "naijavid.ai"
     );
 
     const response =
@@ -570,43 +777,59 @@ export default function GeneratorPage() {
         }
       );
 
-    let data: any = null;
+    let data: any =
+      null;
 
     try {
       data =
         await response.json();
     } catch {
-      data = null;
+      data =
+        null;
     }
 
-    if (!response.ok) {
+    if (
+      !response.ok
+    ) {
+      console.error(
+        "IMAGE GENERATION BACKEND RESPONSE:",
+        data
+      );
+
       throw new Error(
-        data?.detail ||
-          data?.error ||
-          data?.message ||
+        extractErrorMessage(
+          data,
           `Image-to-video generation failed with status ${response.status}.`
+        )
       );
     }
 
     const generatedUrl =
-      data?.videoUrl ||
-      data?.video_url ||
-      data?.url ||
-      data?.output_url ||
-      data?.output;
+      getVideoUrl(
+        data
+      );
 
-    if (!generatedUrl) {
+    if (
+      !generatedUrl
+    ) {
+      console.error(
+        "IMAGE GENERATION RESPONSE:",
+        data
+      );
+
       throw new Error(
-        "Backend did not return a video URL."
+        "Backend generated a response but did not return a video URL."
       );
     }
 
-    return generatedUrl;
+    return String(
+      generatedUrl
+    );
   }
 
-  // --------------------------------------------------
+  // ======================================================
   // GENERATE
-  // --------------------------------------------------
+  // ======================================================
 
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>
@@ -616,7 +839,9 @@ export default function GeneratorPage() {
     const currentUser =
       auth.currentUser;
 
-    if (!currentUser) {
+    if (
+      !currentUser
+    ) {
       router.push(
         "/login"
       );
@@ -624,7 +849,9 @@ export default function GeneratorPage() {
       return;
     }
 
-    if (!prompt.trim()) {
+    if (
+      !prompt.trim()
+    ) {
       setError(
         "A prompt is required."
       );
@@ -633,7 +860,8 @@ export default function GeneratorPage() {
     }
 
     if (
-      mode === "image" &&
+      mode ===
+        "image" &&
       !imageFile
     ) {
       setError(
@@ -646,6 +874,10 @@ export default function GeneratorPage() {
     try {
       setGenerating(
         true
+      );
+
+      setVideoUrl(
+        ""
       );
 
       setError("");
@@ -672,11 +904,14 @@ export default function GeneratorPage() {
       }
 
       setMessage(
-        "Generating video..."
+        mode === "text"
+          ? "Generating text video..."
+          : "Generating image video..."
       );
 
       const generatedUrl =
-        mode === "text"
+        mode ===
+        "text"
           ? await generateTextVideo()
           : await generateImageVideo();
 
@@ -702,7 +937,9 @@ export default function GeneratorPage() {
           generatedUrl
         );
 
-      if (saved) {
+      if (
+        saved
+      ) {
         setMessage(
           "Video generated successfully and saved to history."
         );
@@ -720,8 +957,10 @@ export default function GeneratorPage() {
       );
 
       setError(
-        err?.message ||
-          "Video generation failed."
+        typeof err?.message ===
+          "string"
+          ? err.message
+          : "Video generation failed."
       );
 
       setMessage(
@@ -734,9 +973,9 @@ export default function GeneratorPage() {
     }
   }
 
-  // --------------------------------------------------
+  // ======================================================
   // SIGN OUT
-  // --------------------------------------------------
+  // ======================================================
 
   async function handleSignOut() {
     try {
@@ -747,7 +986,9 @@ export default function GeneratorPage() {
       router.replace(
         "/login"
       );
-    } catch (err) {
+    } catch (
+      err
+    ) {
       console.error(
         "SIGN OUT ERROR:",
         err
@@ -759,9 +1000,9 @@ export default function GeneratorPage() {
     }
   }
 
-  // --------------------------------------------------
+  // ======================================================
   // LOADING
-  // --------------------------------------------------
+  // ======================================================
 
   if (
     authLoading ||
@@ -776,20 +1017,23 @@ export default function GeneratorPage() {
     );
   }
 
-  if (!user) {
+  if (
+    !user
+  ) {
     return null;
   }
 
   const isPro =
     generationAccess
-      ?.plan === "pro" &&
+      ?.plan ===
+      "pro" &&
     generationAccess
       ?.subscriptionStatus ===
       "active";
 
-  // --------------------------------------------------
+  // ======================================================
   // UI
-  // --------------------------------------------------
+  // ======================================================
 
   return (
     <main className="min-h-screen bg-black text-white px-6 py-10">
@@ -934,11 +1178,15 @@ export default function GeneratorPage() {
           <div className="flex flex-wrap gap-4 mb-8">
             <button
               type="button"
-              onClick={() =>
+              onClick={() => {
                 setMode(
                   "text"
-                )
-              }
+                );
+
+                setError("");
+                setMessage("");
+                setVideoUrl("");
+              }}
               className={`px-8 py-4 rounded-2xl font-semibold ${
                 mode ===
                 "text"
@@ -951,11 +1199,15 @@ export default function GeneratorPage() {
 
             <button
               type="button"
-              onClick={() =>
+              onClick={() => {
                 setMode(
                   "image"
-                )
-              }
+                );
+
+                setError("");
+                setMessage("");
+                setVideoUrl("");
+              }}
               className={`px-8 py-4 rounded-2xl font-semibold ${
                 mode ===
                 "image"
