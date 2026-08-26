@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 
 import requests
+from gtts import gTTS
 
 # =========================================================
 # PILLOW FIRST
@@ -42,6 +43,7 @@ else:
 from moviepy.editor import (
     ImageClip,
     CompositeVideoClip,
+    AudioFileClip,
 )
 
 
@@ -1300,6 +1302,126 @@ def save_frame_as_image(
     return frame_path
 
 
+
+# =========================================================
+# TEXT TO SPEECH
+# =========================================================
+
+TTS_ENABLED = (
+    os.getenv(
+        "NAIJAVID_TTS_ENABLED",
+        "true",
+    )
+    .strip()
+    .lower()
+    in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+)
+
+# gTTS does not currently provide a dedicated Nigerian Pidgin
+# language code. For development, Pidgin is spoken with English TTS.
+# This validates the complete audio pipeline without a paid voice API.
+GTTS_LANGUAGE_MAP = {
+    "English": "en",
+    "Yoruba": "yo",
+    "Igbo": "ig",
+    "Hausa": "ha",
+    "Nigerian Pidgin": "en",
+}
+
+
+def get_tts_language_code(
+    language: str,
+) -> str:
+
+    normalized = normalize_language(
+        language
+    )
+
+    code = GTTS_LANGUAGE_MAP.get(
+        normalized
+    )
+
+    if not code:
+        raise ValueError(
+            f"No TTS mapping is configured for {normalized}."
+        )
+
+    return code
+
+
+def generate_tts_audio(
+    text: str,
+    language: str,
+) -> Path | None:
+
+    if not TTS_ENABLED:
+        return None
+
+    cleaned_text = (
+        text or ""
+    ).strip()
+
+    if not cleaned_text:
+        return None
+
+    normalized_language = (
+        normalize_language(
+            language
+        )
+    )
+
+    tts_code = (
+        get_tts_language_code(
+            normalized_language
+        )
+    )
+
+    output_path = (
+        GENERATED_DIR
+        / new_filename(
+            "_narration.mp3"
+        )
+    )
+
+    try:
+        # gTTS is being used only as a development/fallback voice engine.
+        # It requires outbound internet access but no OpenAI API credits.
+        tts = gTTS(
+            text=cleaned_text,
+            lang=tts_code,
+            slow=False,
+        )
+
+        tts.save(
+            str(
+                output_path
+            )
+        )
+
+    except Exception as exc:
+        cleanup_file(
+            output_path
+        )
+
+        # Voice failure should not destroy otherwise valid video generation.
+        print(
+            "NaijaVid TTS warning:",
+            str(exc),
+        )
+
+        return None
+
+    if not output_path.exists():
+        return None
+
+    return output_path
+
+
 # =========================================================
 # CINEMATIC VIDEO
 # =========================================================
@@ -1307,6 +1429,7 @@ def save_frame_as_image(
 def save_cinematic_video(
     frame_path: Path,
     duration: int,
+    audio_path: Path | None = None,
 ) -> str:
 
     duration = (
@@ -1329,6 +1452,8 @@ def save_cinematic_video(
     base_clip = None
     moving_clip = None
     final_clip = None
+    audio_clip = None
+    prepared_audio_clip = None
 
     try:
 
@@ -1389,13 +1514,54 @@ def save_cinematic_video(
             )
         )
 
+        # -------------------------------------------------
+        # NARRATION
+        # -------------------------------------------------
+
+        if (
+            audio_path is not None
+            and audio_path.exists()
+        ):
+
+            audio_clip = AudioFileClip(
+                str(
+                    audio_path
+                )
+            )
+
+            # Keep the MP4 at the duration chosen by the user.
+            # If narration is longer, trim it.
+            # If narration is shorter, the rest of the video is silent.
+            if audio_clip.duration > duration:
+                prepared_audio_clip = (
+                    audio_clip.subclip(
+                        0,
+                        duration,
+                    )
+                )
+            else:
+                prepared_audio_clip = (
+                    audio_clip
+                )
+
+            final_clip = (
+                final_clip
+                .set_audio(
+                    prepared_audio_clip
+                )
+            )
+
         final_clip.write_videofile(
             str(
                 output_path
             ),
             fps=FPS,
             codec="libx264",
-            audio=False,
+            audio=(
+                audio_path is not None
+                and audio_path.exists()
+            ),
+            audio_codec="aac",
             preset="ultrafast",
             ffmpeg_params=[
                 "-pix_fmt",
@@ -1411,6 +1577,8 @@ def save_cinematic_video(
     finally:
 
         for clip in [
+            prepared_audio_clip,
+            audio_clip,
             final_clip,
             moving_clip,
             base_clip,
@@ -1426,6 +1594,10 @@ def save_cinematic_video(
 
         cleanup_file(
             frame_path
+        )
+
+        cleanup_file(
+            audio_path
         )
 
         gc.collect()
@@ -1458,6 +1630,7 @@ def generate_text_video(
 
     visual_path = None
     frame_path = None
+    audio_path = None
     canvas = None
 
     try:
@@ -1554,9 +1727,17 @@ def generate_text_video(
             "Unable to prepare text video."
         )
 
+    audio_path = (
+        generate_tts_audio(
+            text=prompt,
+            language=language,
+        )
+    )
+
     return save_cinematic_video(
         frame_path=frame_path,
         duration=duration,
+        audio_path=audio_path,
     )
 
 
@@ -1580,6 +1761,7 @@ def generate_image_video(
 
     canvas = None
     frame_path = None
+    audio_path = None
 
     try:
 
