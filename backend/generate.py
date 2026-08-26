@@ -6,13 +6,17 @@ import uuid
 from pathlib import Path
 
 import requests
-import numpy as np
 
 # =========================================================
 # PILLOW FIRST
 # =========================================================
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import (
+    Image,
+    ImageDraw,
+    ImageFont,
+    ImageOps,
+)
 
 
 # =========================================================
@@ -76,11 +80,107 @@ JPEG_QUALITY = 88
 
 
 # =========================================================
-# OPENAI IMAGE SETTINGS
+# NIGERIAN LANGUAGE FOUNDATION
+# =========================================================
+
+SUPPORTED_LANGUAGES = {
+    "English": {
+        "code": "en",
+        "label": "English",
+    },
+
+    "Yoruba": {
+        "code": "yo",
+        "label": "Yoruba",
+    },
+
+    "Igbo": {
+        "code": "ig",
+        "label": "Igbo",
+    },
+
+    "Hausa": {
+        "code": "ha",
+        "label": "Hausa",
+    },
+
+    "Nigerian Pidgin": {
+        "code": "pcm",
+        "label": "Nigerian Pidgin",
+    },
+}
+
+
+def normalize_language(
+    language: str,
+) -> str:
+    cleaned = (
+        language or ""
+    ).strip()
+
+    if cleaned not in SUPPORTED_LANGUAGES:
+        supported = ", ".join(
+            SUPPORTED_LANGUAGES.keys()
+        )
+
+        raise ValueError(
+            f"Unsupported language '{cleaned}'. "
+            f"Supported languages: {supported}"
+        )
+
+    return cleaned
+
+
+def get_language_code(
+    language: str,
+) -> str:
+    normalized = normalize_language(
+        language
+    )
+
+    return (
+        SUPPORTED_LANGUAGES[
+            normalized
+        ]["code"]
+    )
+
+
+# =========================================================
+# VISUAL GENERATION MODE
+# =========================================================
+
+# IMPORTANT:
+#
+# fallback = FREE development mode
+# openai   = use paid OpenAI image generation
+#
+# Keep fallback while developing without API credits.
+
+VISUAL_MODE = (
+    os.getenv(
+        "NAIJAVID_AI_VISUAL_MODE",
+        "fallback",
+    )
+    .strip()
+    .lower()
+)
+
+if VISUAL_MODE not in {
+    "fallback",
+    "openai",
+}:
+    VISUAL_MODE = "fallback"
+
+
+# =========================================================
+# OPENAI SETTINGS
 # =========================================================
 
 OPENAI_API_KEY = (
-    os.getenv("OPENAI_API_KEY", "")
+    os.getenv(
+        "OPENAI_API_KEY",
+        "",
+    )
     .strip()
 )
 
@@ -107,7 +207,9 @@ def get_font(
     possible_fonts = [
         "arial.ttf",
         "Arial.ttf",
+
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+
         "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
     ]
 
@@ -133,16 +235,22 @@ def wrap_text(
     font,
     max_width: int,
 ) -> list[str]:
-    words = text.split()
+
+    words = (
+        text or ""
+    ).split()
 
     if not words:
         return [""]
 
     lines: list[str] = []
+
     current = words[0]
 
     for word in words[1:]:
-        trial = f"{current} {word}"
+        trial = (
+            f"{current} {word}"
+        )
 
         bbox = draw.textbbox(
             (0, 0),
@@ -157,10 +265,12 @@ def wrap_text(
 
         if width <= max_width:
             current = trial
+
         else:
             lines.append(
                 current
             )
+
             current = word
 
     lines.append(
@@ -177,10 +287,12 @@ def wrap_text(
 def sanitize_duration(
     duration: int,
 ) -> int:
+
     try:
         duration = int(
             duration
         )
+
     except Exception:
         duration = 5
 
@@ -200,12 +312,14 @@ def sanitize_duration(
 def cleanup_file(
     path: Path | None,
 ) -> None:
+
     if path is None:
         return
 
     try:
         if path.exists():
             path.unlink()
+
     except Exception:
         pass
 
@@ -217,6 +331,7 @@ def cleanup_file(
 def new_filename(
     suffix: str,
 ) -> str:
+
     return (
         f"{uuid.uuid4().hex}"
         f"{suffix}"
@@ -224,53 +339,82 @@ def new_filename(
 
 
 # =========================================================
-# PROMPT ENHANCEMENT
+# AI VISUAL PROMPT
 # =========================================================
 
 def build_visual_prompt(
     prompt: str,
     language: str,
 ) -> str:
+
     cleaned_prompt = (
-        prompt.strip()
-    )
+        prompt or ""
+    ).strip()
 
     if not cleaned_prompt:
         raise ValueError(
             "Prompt is required."
         )
 
+    normalized_language = (
+        normalize_language(
+            language
+        )
+    )
+
+    language_code = (
+        get_language_code(
+            normalized_language
+        )
+    )
+
     nigeria_context = """
-Create a cinematic, photorealistic video keyframe based on the user's scene.
-Use realistic African people where people are appropriate.
-When the location or cultural context is Nigerian, preserve authentic Nigerian
-architecture, clothing, streets, transport, markets, environment and atmosphere.
-Do not place captions, logos, watermarks, subtitles or written text inside the image.
-Use natural lighting, realistic proportions, accurate hands and faces, detailed
-cinematography, believable depth, professional composition, and a landscape frame
-suitable for a short film.
+Create a cinematic, photorealistic video keyframe.
+
+When people are appropriate, use realistic African people.
+
+When the location or context is Nigerian, preserve authentic Nigerian:
+architecture,
+streets,
+markets,
+transport,
+clothing,
+landscape,
+weather,
+skin tones,
+culture,
+business environment,
+and atmosphere.
+
+Use realistic proportions, natural lighting, accurate hands and faces,
+cinematic depth, professional composition and landscape framing.
+
+Do not place captions, subtitles, logos or watermarks inside the image.
 """.strip()
 
     return (
         f"{nigeria_context}\n\n"
         f"User scene:\n"
         f"{cleaned_prompt}\n\n"
-        f"Requested language context: "
-        f"{language}"
+        f"Language context: "
+        f"{normalized_language}\n"
+        f"Language code: "
+        f"{language_code}"
     )
 
 
 # =========================================================
-# OPENAI IMAGE GENERATION
+# PAID OPENAI IMAGE GENERATION
 # =========================================================
 
-def generate_ai_image(
+def generate_openai_image(
     prompt: str,
     language: str,
 ) -> Path:
+
     if not OPENAI_API_KEY:
         raise RuntimeError(
-            "OPENAI_API_KEY is missing on the Render backend."
+            "OPENAI_API_KEY is missing."
         )
 
     visual_prompt = (
@@ -319,6 +463,7 @@ def generate_ai_image(
         ) from exc
 
     if not response.ok:
+
         try:
             error_data = (
                 response.json()
@@ -326,7 +471,10 @@ def generate_ai_image(
 
             message = (
                 error_data
-                .get("error", {})
+                .get(
+                    "error",
+                    {},
+                )
                 .get(
                     "message",
                     response.text,
@@ -334,84 +482,60 @@ def generate_ai_image(
             )
 
         except Exception:
-            message = (
-                response.text
-            )
+            message = response.text
 
         raise RuntimeError(
-            "AI image generation failed: "
-            f"{message}"
+            f"AI image generation failed: {message}"
         )
 
-    try:
-        data = (
-            response.json()
+    data = (
+        response.json()
+    )
+
+    items = (
+        data.get(
+            "data"
         )
+        or []
+    )
 
-        items = (
-            data.get("data")
-            or []
-        )
-
-        if not items:
-            raise RuntimeError(
-                "AI provider returned no image."
-            )
-
-        item = items[0]
-
-    except Exception as exc:
+    if not items:
         raise RuntimeError(
-            "Unable to read AI image response."
-        ) from exc
+            "AI provider returned no image."
+        )
 
-    # -----------------------------------------------------
-    # BASE64 IMAGE RESPONSE
-    # -----------------------------------------------------
+    item = items[0]
 
     image_bytes = None
 
     if item.get(
         "b64_json"
     ):
-        try:
-            image_bytes = (
-                base64.b64decode(
-                    item[
-                        "b64_json"
-                    ]
-                )
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                "Unable to decode AI image."
-            ) from exc
 
-    # -----------------------------------------------------
-    # URL IMAGE RESPONSE
-    # -----------------------------------------------------
+        image_bytes = (
+            base64.b64decode(
+                item[
+                    "b64_json"
+                ]
+            )
+        )
 
     elif item.get(
         "url"
     ):
-        try:
-            image_response = (
-                requests.get(
-                    item["url"],
-                    timeout=120,
-                )
+
+        image_response = (
+            requests.get(
+                item["url"],
+                timeout=120,
             )
+        )
 
-            image_response.raise_for_status()
+        image_response.raise_for_status()
 
-            image_bytes = (
-                image_response.content
-            )
-
-        except requests.RequestException as exc:
-            raise RuntimeError(
-                "Unable to download AI image."
-            ) from exc
+        image_bytes = (
+            image_response.content
+        )
 
     else:
         raise RuntimeError(
@@ -431,6 +555,7 @@ def generate_ai_image(
                 image_bytes
             )
         ) as generated:
+
             generated = (
                 ImageOps
                 .exif_transpose(
@@ -449,6 +574,7 @@ def generate_ai_image(
             )
 
     except Exception as exc:
+
         cleanup_file(
             output_path
         )
@@ -461,12 +587,320 @@ def generate_ai_image(
 
 
 # =========================================================
-# IMAGE FIT
+# FREE DEVELOPMENT VISUAL
+# =========================================================
+
+def generate_fallback_visual(
+    prompt: str,
+    language: str,
+) -> Path:
+
+    normalized_language = (
+        normalize_language(
+            language
+        )
+    )
+
+    language_code = (
+        get_language_code(
+            normalized_language
+        )
+    )
+
+    cleaned_prompt = (
+        prompt or ""
+    ).strip()
+
+    if not cleaned_prompt:
+        raise ValueError(
+            "Prompt is required."
+        )
+
+    # -----------------------------------------------------
+    # GRADIENT BACKGROUND
+    # -----------------------------------------------------
+
+    image = Image.new(
+        "RGB",
+        (
+            VIDEO_WIDTH,
+            VIDEO_HEIGHT,
+        ),
+        (
+            10,
+            16,
+            32,
+        ),
+    )
+
+    draw = ImageDraw.Draw(
+        image,
+        "RGBA",
+    )
+
+    # Soft vertical gradient
+    for y in range(
+        VIDEO_HEIGHT
+    ):
+
+        progress = (
+            y
+            / VIDEO_HEIGHT
+        )
+
+        r = int(
+            10
+            + 24 * progress
+        )
+
+        g = int(
+            16
+            + 30 * progress
+        )
+
+        b = int(
+            32
+            + 58 * progress
+        )
+
+        draw.line(
+            [
+                (
+                    0,
+                    y,
+                ),
+                (
+                    VIDEO_WIDTH,
+                    y,
+                ),
+            ],
+            fill=(
+                r,
+                g,
+                b,
+                255,
+            ),
+        )
+
+    # -----------------------------------------------------
+    # DECORATIVE SHAPES
+    # -----------------------------------------------------
+
+    draw.ellipse(
+        (
+            -120,
+            -100,
+            330,
+            350,
+        ),
+        fill=(
+            20,
+            120,
+            90,
+            70,
+        ),
+    )
+
+    draw.ellipse(
+        (
+            580,
+            180,
+            980,
+            580,
+        ),
+        fill=(
+            180,
+            80,
+            20,
+            60,
+        ),
+    )
+
+    # -----------------------------------------------------
+    # TITLE
+    # -----------------------------------------------------
+
+    brand_font = get_font(
+        28
+    )
+
+    prompt_font = get_font(
+        34
+    )
+
+    meta_font = get_font(
+        20
+    )
+
+    draw.text(
+        (
+            42,
+            36,
+        ),
+        "NaijaVid AI",
+        font=brand_font,
+        fill=(
+            255,
+            255,
+            255,
+            235,
+        ),
+    )
+
+    # -----------------------------------------------------
+    # PROMPT
+    # -----------------------------------------------------
+
+    lines = wrap_text(
+        draw,
+        cleaned_prompt,
+        prompt_font,
+        VIDEO_WIDTH - 110,
+    )[:5]
+
+    y = 130
+
+    for line in lines:
+
+        draw.text(
+            (
+                55,
+                y,
+            ),
+            line,
+            font=prompt_font,
+            fill=(
+                255,
+                255,
+                255,
+                255,
+            ),
+        )
+
+        y += 48
+
+    # -----------------------------------------------------
+    # LANGUAGE BADGE
+    # -----------------------------------------------------
+
+    badge_text = (
+        f"{normalized_language} "
+        f"({language_code})"
+    )
+
+    badge_bbox = (
+        draw.textbbox(
+            (0, 0),
+            badge_text,
+            font=meta_font,
+        )
+    )
+
+    badge_width = (
+        badge_bbox[2]
+        - badge_bbox[0]
+    )
+
+    badge_height = (
+        badge_bbox[3]
+        - badge_bbox[1]
+    )
+
+    badge_x = 55
+    badge_y = VIDEO_HEIGHT - 75
+
+    draw.rounded_rectangle(
+        (
+            badge_x - 12,
+            badge_y - 8,
+            badge_x
+            + badge_width
+            + 12,
+            badge_y
+            + badge_height
+            + 8,
+        ),
+        radius=10,
+        fill=(
+            0,
+            0,
+            0,
+            120,
+        ),
+    )
+
+    draw.text(
+        (
+            badge_x,
+            badge_y,
+        ),
+        badge_text,
+        font=meta_font,
+        fill=(
+            255,
+            255,
+            255,
+            230,
+        ),
+    )
+
+    output_path = (
+        GENERATED_DIR
+        / new_filename(
+            "_fallback_scene.jpg"
+        )
+    )
+
+    image.save(
+        output_path,
+        format="JPEG",
+        quality=92,
+        optimize=True,
+    )
+
+    image.close()
+
+    return output_path
+
+
+# =========================================================
+# VISUAL PROVIDER ROUTER
+# =========================================================
+
+def generate_visual(
+    prompt: str,
+    language: str,
+) -> Path:
+
+    normalize_language(
+        language
+    )
+
+    if (
+        VISUAL_MODE
+        == "openai"
+    ):
+
+        return generate_openai_image(
+            prompt=prompt,
+            language=language,
+        )
+
+    # Default: free development mode
+    return generate_fallback_visual(
+        prompt=prompt,
+        language=language,
+    )
+
+
+# =========================================================
+# FIT IMAGE TO VIDEO CANVAS
 # =========================================================
 
 def fit_image_to_canvas(
     source: Image.Image,
 ) -> Image.Image:
+
     source = (
         ImageOps
         .exif_transpose(
@@ -487,14 +921,11 @@ def fit_image_to_canvas(
         / VIDEO_HEIGHT
     )
 
-    # -----------------------------------------------------
-    # COVER FRAME
-    # -----------------------------------------------------
-
     if (
         source_ratio
         > target_ratio
     ):
+
         new_height = (
             VIDEO_HEIGHT
         )
@@ -505,6 +936,7 @@ def fit_image_to_canvas(
         )
 
     else:
+
         new_width = (
             VIDEO_WIDTH
         )
@@ -540,22 +972,14 @@ def fit_image_to_canvas(
         0,
     )
 
-    right = (
-        left
-        + VIDEO_WIDTH
-    )
-
-    bottom = (
-        top
-        + VIDEO_HEIGHT
-    )
-
     return source.crop(
         (
             left,
             top,
-            right,
-            bottom,
+            left
+            + VIDEO_WIDTH,
+            top
+            + VIDEO_HEIGHT,
         )
     )
 
@@ -568,7 +992,12 @@ def apply_watermark(
     image: Image.Image,
     watermark: str,
 ) -> Image.Image:
-    if not watermark.strip():
+
+    text = (
+        watermark or ""
+    ).strip()
+
+    if not text:
         return image
 
     draw = ImageDraw.Draw(
@@ -578,10 +1007,6 @@ def apply_watermark(
 
     font = get_font(
         18
-    )
-
-    text = (
-        watermark.strip()
     )
 
     bbox = draw.textbbox(
@@ -600,38 +1025,29 @@ def apply_watermark(
         - bbox[1]
     )
 
-    padding_x = 12
-    padding_y = 8
-
     x = (
         VIDEO_WIDTH
         - text_width
-        - padding_x
-        - 18
+        - 32
     )
 
     y = (
         VIDEO_HEIGHT
         - text_height
-        - padding_y
-        - 18
+        - 28
     )
 
     draw.rounded_rectangle(
-        [
-            (
-                x - padding_x,
-                y - padding_y,
-            ),
-            (
-                x
-                + text_width
-                + padding_x,
-                y
-                + text_height
-                + padding_y,
-            ),
-        ],
+        (
+            x - 10,
+            y - 7,
+            x
+            + text_width
+            + 10,
+            y
+            + text_height
+            + 7,
+        ),
         radius=8,
         fill=(
             0,
@@ -660,16 +1076,105 @@ def apply_watermark(
 
 
 # =========================================================
-# OPTIONAL CAPTION
+# LANGUAGE BADGE
+# =========================================================
+
+def apply_language_badge(
+    image: Image.Image,
+    language: str,
+) -> Image.Image:
+
+    normalized_language = (
+        normalize_language(
+            language
+        )
+    )
+
+    code = (
+        get_language_code(
+            normalized_language
+        )
+    )
+
+    text = (
+        f"{normalized_language} "
+        f"• {code}"
+    )
+
+    draw = ImageDraw.Draw(
+        image,
+        "RGBA",
+    )
+
+    font = get_font(
+        18
+    )
+
+    bbox = draw.textbbox(
+        (0, 0),
+        text,
+        font=font,
+    )
+
+    width = (
+        bbox[2]
+        - bbox[0]
+    )
+
+    height = (
+        bbox[3]
+        - bbox[1]
+    )
+
+    x = 20
+    y = 20
+
+    draw.rounded_rectangle(
+        (
+            x,
+            y,
+            x + width + 24,
+            y + height + 16,
+        ),
+        radius=8,
+        fill=(
+            0,
+            0,
+            0,
+            130,
+        ),
+    )
+
+    draw.text(
+        (
+            x + 12,
+            y + 8,
+        ),
+        text,
+        font=font,
+        fill=(
+            255,
+            255,
+            255,
+            230,
+        ),
+    )
+
+    return image
+
+
+# =========================================================
+# CAPTION
 # =========================================================
 
 def apply_caption(
     image: Image.Image,
     prompt: str,
 ) -> Image.Image:
+
     cleaned = (
-        prompt.strip()
-    )
+        prompt or ""
+    ).strip()
 
     if not cleaned:
         return image
@@ -683,30 +1188,25 @@ def apply_caption(
         22
     )
 
-    max_width = (
-        VIDEO_WIDTH
-        - 80
-    )
-
     lines = wrap_text(
         draw,
         cleaned,
         font,
-        max_width,
+        VIDEO_WIDTH - 80,
     )[:2]
 
     if not lines:
         return image
 
-    line_height = 28
+    line_height = 29
 
     panel_height = (
-        28
+        35
         + (
             len(lines)
             * line_height
         )
-        + 20
+        + 18
     )
 
     panel_top = (
@@ -715,21 +1215,17 @@ def apply_caption(
     )
 
     draw.rectangle(
-        [
-            (
-                0,
-                panel_top,
-            ),
-            (
-                VIDEO_WIDTH,
-                VIDEO_HEIGHT,
-            ),
-        ],
+        (
+            0,
+            panel_top,
+            VIDEO_WIDTH,
+            VIDEO_HEIGHT,
+        ),
         fill=(
             0,
             0,
             0,
-            115,
+            110,
         ),
     )
 
@@ -739,6 +1235,7 @@ def apply_caption(
     )
 
     for line in lines:
+
         bbox = draw.textbbox(
             (0, 0),
             line,
@@ -785,6 +1282,7 @@ def save_frame_as_image(
     frame: Image.Image,
     suffix: str,
 ) -> Path:
+
     frame_path = (
         GENERATED_DIR
         / new_filename(
@@ -803,94 +1301,14 @@ def save_frame_as_image(
 
 
 # =========================================================
-# STATIC IMAGE VIDEO
-# =========================================================
-
-def save_video_from_frame(
-    frame_path: Path,
-    duration: int,
-) -> str:
-    duration = (
-        sanitize_duration(
-            duration
-        )
-    )
-
-    filename = (
-        new_filename(
-            ".mp4"
-        )
-    )
-
-    output_path = (
-        GENERATED_DIR
-        / filename
-    )
-
-    clip = None
-
-    try:
-        clip = (
-            ImageClip(
-                str(
-                    frame_path
-                )
-            )
-            .set_duration(
-                duration
-            )
-        )
-
-        clip.write_videofile(
-            str(
-                output_path
-            ),
-            fps=FPS,
-            codec="libx264",
-            audio=False,
-            preset="ultrafast",
-            ffmpeg_params=[
-                "-pix_fmt",
-                "yuv420p",
-                "-movflags",
-                "+faststart",
-            ],
-            threads=1,
-            verbose=False,
-            logger=None,
-        )
-
-    finally:
-        if clip is not None:
-            try:
-                clip.close()
-            except Exception:
-                pass
-
-            del clip
-
-        cleanup_file(
-            frame_path
-        )
-
-        gc.collect()
-
-    if not output_path.exists():
-        raise RuntimeError(
-            "Video file was not created."
-        )
-
-    return filename
-
-
-# =========================================================
-# CINEMATIC AI IMAGE VIDEO
+# CINEMATIC VIDEO
 # =========================================================
 
 def save_cinematic_video(
     frame_path: Path,
     duration: int,
 ) -> str:
+
     duration = (
         sanitize_duration(
             duration
@@ -913,6 +1331,7 @@ def save_cinematic_video(
     final_clip = None
 
     try:
+
         base_clip = (
             ImageClip(
                 str(
@@ -924,13 +1343,11 @@ def save_cinematic_video(
             )
         )
 
-        # -------------------------------------------------
-        # SUBTLE KEN BURNS ZOOM
-        # -------------------------------------------------
-
+        # Subtle cinematic zoom
         def zoom_factor(
             t
         ):
+
             progress = (
                 t
                 / max(
@@ -942,7 +1359,7 @@ def save_cinematic_video(
             return (
                 1.0
                 + (
-                    0.06
+                    0.055
                     * progress
                 )
             )
@@ -992,14 +1409,18 @@ def save_cinematic_video(
         )
 
     finally:
+
         for clip in [
             final_clip,
             moving_clip,
             base_clip,
         ]:
+
             if clip is not None:
+
                 try:
                     clip.close()
+
                 except Exception:
                     pass
 
@@ -1010,15 +1431,16 @@ def save_cinematic_video(
         gc.collect()
 
     if not output_path.exists():
+
         raise RuntimeError(
-            "AI video file was not created."
+            "Video file was not created."
         )
 
     return filename
 
 
 # =========================================================
-# TEXT TO AI VISUAL VIDEO
+# TEXT TO VIDEO
 # =========================================================
 
 def generate_text_video(
@@ -1027,29 +1449,38 @@ def generate_text_video(
     duration: int,
     watermark: str,
 ) -> str:
-    ai_image_path = None
+
+    language = (
+        normalize_language(
+            language
+        )
+    )
+
+    visual_path = None
     frame_path = None
     canvas = None
 
     try:
+
         # -------------------------------------------------
-        # 1. GENERATE ACTUAL VISUAL FROM PROMPT
+        # Generate visual
         # -------------------------------------------------
 
-        ai_image_path = (
-            generate_ai_image(
+        visual_path = (
+            generate_visual(
                 prompt=prompt,
                 language=language,
             )
         )
 
         # -------------------------------------------------
-        # 2. FIT GENERATED VISUAL INTO VIDEO FRAME
+        # Fit to video frame
         # -------------------------------------------------
 
         with Image.open(
-            ai_image_path
+            visual_path
         ) as source:
+
             canvas = (
                 fit_image_to_canvas(
                     source
@@ -1057,87 +1488,18 @@ def generate_text_video(
             )
 
         # -------------------------------------------------
-        # 3. WATERMARK ONLY
+        # Add language information
         # -------------------------------------------------
 
         canvas = (
-            apply_watermark(
+            apply_language_badge(
                 canvas,
-                watermark,
+                language,
             )
         )
-
-        # Uncomment this if you want the prompt displayed
-        # at the bottom of generated videos.
-        #
-        # canvas = apply_caption(
-        #     canvas,
-        #     prompt,
-        # )
-
-        frame_path = (
-            save_frame_as_image(
-                canvas,
-                "_ai_video_frame.jpg",
-            )
-        )
-
-    finally:
-        if canvas is not None:
-            try:
-                canvas.close()
-            except Exception:
-                pass
-
-        cleanup_file(
-            ai_image_path
-        )
-
-        gc.collect()
-
-    if frame_path is None:
-        raise RuntimeError(
-            "Unable to prepare AI-generated scene."
-        )
-
-    # -----------------------------------------------------
-    # 4. TURN IMAGE INTO CINEMATIC MOVING VIDEO
-    # -----------------------------------------------------
-
-    return (
-        save_cinematic_video(
-            frame_path=frame_path,
-            duration=duration,
-        )
-    )
-
-
-# =========================================================
-# USER IMAGE TO VIDEO
-# =========================================================
-
-def generate_image_video(
-    image_path: str,
-    prompt: str,
-    language: str,
-    duration: int,
-    watermark: str,
-) -> str:
-    canvas = None
-    frame_path = None
-
-    try:
-        with Image.open(
-            image_path
-        ) as source:
-            canvas = (
-                fit_image_to_canvas(
-                    source
-                )
-            )
 
         # -------------------------------------------------
-        # WATERMARK
+        # Watermark
         # -------------------------------------------------
 
         canvas = (
@@ -1148,10 +1510,14 @@ def generate_image_video(
         )
 
         # -------------------------------------------------
-        # OPTIONAL CAPTION
+        # Development fallback shows prompt
         # -------------------------------------------------
 
-        if prompt.strip():
+        if (
+            VISUAL_MODE
+            == "fallback"
+        ):
+
             canvas = (
                 apply_caption(
                     canvas,
@@ -1162,27 +1528,134 @@ def generate_image_video(
         frame_path = (
             save_frame_as_image(
                 canvas,
+                "_text_video_frame.jpg",
+            )
+        )
+
+    finally:
+
+        if canvas is not None:
+
+            try:
+                canvas.close()
+
+            except Exception:
+                pass
+
+        cleanup_file(
+            visual_path
+        )
+
+        gc.collect()
+
+    if frame_path is None:
+
+        raise RuntimeError(
+            "Unable to prepare text video."
+        )
+
+    return save_cinematic_video(
+        frame_path=frame_path,
+        duration=duration,
+    )
+
+
+# =========================================================
+# IMAGE TO VIDEO
+# =========================================================
+
+def generate_image_video(
+    image_path: str,
+    prompt: str,
+    language: str,
+    duration: int,
+    watermark: str,
+) -> str:
+
+    language = (
+        normalize_language(
+            language
+        )
+    )
+
+    canvas = None
+    frame_path = None
+
+    try:
+
+        with Image.open(
+            image_path
+        ) as source:
+
+            canvas = (
+                fit_image_to_canvas(
+                    source
+                )
+            )
+
+        # -------------------------------------------------
+        # Language indicator
+        # -------------------------------------------------
+
+        canvas = (
+            apply_language_badge(
+                canvas,
+                language,
+            )
+        )
+
+        # -------------------------------------------------
+        # Caption
+        # -------------------------------------------------
+
+        if (
+            prompt.strip()
+        ):
+
+            canvas = (
+                apply_caption(
+                    canvas,
+                    prompt,
+                )
+            )
+
+        # -------------------------------------------------
+        # Watermark
+        # -------------------------------------------------
+
+        canvas = (
+            apply_watermark(
+                canvas,
+                watermark,
+            )
+        )
+
+        frame_path = (
+            save_frame_as_image(
+                canvas,
                 "_image_video_frame.jpg",
             )
         )
 
     finally:
+
         if canvas is not None:
+
             try:
                 canvas.close()
+
             except Exception:
                 pass
 
         gc.collect()
 
     if frame_path is None:
+
         raise RuntimeError(
             "Unable to create image video frame."
         )
 
-    return (
-        save_cinematic_video(
-            frame_path=frame_path,
-            duration=duration,
-        )
+    return save_cinematic_video(
+        frame_path=frame_path,
+        duration=duration,
     )
