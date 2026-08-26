@@ -2075,4 +2075,3 @@ def generate_image_video(
         duration=duration,
         audio_path=audio_path,
     )
-    )
