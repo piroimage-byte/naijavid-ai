@@ -10,3 +10,4 @@ python-multipart
 setuptools
 wheel
 firebase-admin
+requests>=2.31.0

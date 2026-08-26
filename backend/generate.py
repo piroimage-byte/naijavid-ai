@@ -1,6 +1,12 @@
+import base64
 import gc
+import io
+import os
 import uuid
 from pathlib import Path
+
+import requests
+import numpy as np
 
 # =========================================================
 # PILLOW FIRST
@@ -13,16 +19,11 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 # PILLOW / MOVIEPY COMPATIBILITY
 # =========================================================
 
-# MoviePy 1.0.3 may still use Image.ANTIALIAS.
-# Pillow 10+ removed that attribute.
-# Restore it before importing MoviePy.
-
 if not hasattr(Image, "ANTIALIAS"):
     if hasattr(Image, "Resampling"):
         Image.ANTIALIAS = Image.Resampling.LANCZOS
     else:
         Image.ANTIALIAS = Image.LANCZOS
-
 
 if hasattr(Image, "Resampling"):
     RESAMPLE_LANCZOS = Image.Resampling.LANCZOS
@@ -34,7 +35,10 @@ else:
 # MOVIEPY
 # =========================================================
 
-from moviepy.editor import ImageClip
+from moviepy.editor import (
+    ImageClip,
+    CompositeVideoClip,
+)
 
 
 # =========================================================
@@ -69,6 +73,28 @@ FPS = 12
 MAX_DURATION_SECONDS = 8
 
 JPEG_QUALITY = 88
+
+
+# =========================================================
+# OPENAI IMAGE SETTINGS
+# =========================================================
+
+OPENAI_API_KEY = (
+    os.getenv("OPENAI_API_KEY", "")
+    .strip()
+)
+
+OPENAI_IMAGE_MODEL = (
+    os.getenv(
+        "OPENAI_IMAGE_MODEL",
+        "gpt-image-1-mini",
+    )
+    .strip()
+)
+
+OPENAI_IMAGE_ENDPOINT = (
+    "https://api.openai.com/v1/images/generations"
+)
 
 
 # =========================================================
@@ -113,7 +139,6 @@ def wrap_text(
         return [""]
 
     lines: list[str] = []
-
     current = words[0]
 
     for word in words[1:]:
@@ -133,10 +158,14 @@ def wrap_text(
         if width <= max_width:
             current = trial
         else:
-            lines.append(current)
+            lines.append(
+                current
+            )
             current = word
 
-    lines.append(current)
+    lines.append(
+        current
+    )
 
     return lines
 
@@ -149,7 +178,9 @@ def sanitize_duration(
     duration: int,
 ) -> int:
     try:
-        duration = int(duration)
+        duration = int(
+            duration
+        )
     except Exception:
         duration = 5
 
@@ -167,8 +198,11 @@ def sanitize_duration(
 # =========================================================
 
 def cleanup_file(
-    path: Path,
+    path: Path | None,
 ) -> None:
+    if path is None:
+        return
+
     try:
         if path.exists():
             path.unlink()
@@ -177,205 +211,253 @@ def cleanup_file(
 
 
 # =========================================================
-# BACKGROUND
+# SAFE FILENAME
 # =========================================================
 
-def create_background() -> Image.Image:
-    return Image.new(
-        "RGB",
-        (
-            VIDEO_WIDTH,
-            VIDEO_HEIGHT,
-        ),
-        color=(
-            0,
-            0,
-            0,
-        ),
+def new_filename(
+    suffix: str,
+) -> str:
+    return (
+        f"{uuid.uuid4().hex}"
+        f"{suffix}"
     )
 
 
 # =========================================================
-# TEXT VIDEO FRAME
+# PROMPT ENHANCEMENT
 # =========================================================
 
-def draw_centered_multiline_text(
-    image: Image.Image,
+def build_visual_prompt(
     prompt: str,
     language: str,
-    watermark: str,
-) -> Image.Image:
-    draw = ImageDraw.Draw(image)
-
-    title_font = get_font(42)
-    sub_font = get_font(28)
-    watermark_font = get_font(24)
-
-    max_width = VIDEO_WIDTH - 120
-
-    title_lines = wrap_text(
-        draw,
-        prompt,
-        title_font,
-        max_width,
+) -> str:
+    cleaned_prompt = (
+        prompt.strip()
     )
 
-    title_lines = title_lines[:5]
-
-    line_heights = []
-
-    total_title_height = 0
-
-    for line in title_lines:
-        bbox = draw.textbbox(
-            (0, 0),
-            line,
-            font=title_font,
+    if not cleaned_prompt:
+        raise ValueError(
+            "Prompt is required."
         )
 
-        height = (
-            bbox[3]
-            - bbox[1]
+    nigeria_context = """
+Create a cinematic, photorealistic video keyframe based on the user's scene.
+Use realistic African people where people are appropriate.
+When the location or cultural context is Nigerian, preserve authentic Nigerian
+architecture, clothing, streets, transport, markets, environment and atmosphere.
+Do not place captions, logos, watermarks, subtitles or written text inside the image.
+Use natural lighting, realistic proportions, accurate hands and faces, detailed
+cinematography, believable depth, professional composition, and a landscape frame
+suitable for a short film.
+""".strip()
+
+    return (
+        f"{nigeria_context}\n\n"
+        f"User scene:\n"
+        f"{cleaned_prompt}\n\n"
+        f"Requested language context: "
+        f"{language}"
+    )
+
+
+# =========================================================
+# OPENAI IMAGE GENERATION
+# =========================================================
+
+def generate_ai_image(
+    prompt: str,
+    language: str,
+) -> Path:
+    if not OPENAI_API_KEY:
+        raise RuntimeError(
+            "OPENAI_API_KEY is missing on the Render backend."
         )
 
-        line_heights.append(
-            height
+    visual_prompt = (
+        build_visual_prompt(
+            prompt=prompt,
+            language=language,
+        )
+    )
+
+    payload = {
+        "model":
+            OPENAI_IMAGE_MODEL,
+
+        "prompt":
+            visual_prompt,
+
+        "size":
+            "1536x1024",
+
+        "quality":
+            "low",
+
+        "n":
+            1,
+    }
+
+    headers = {
+        "Authorization":
+            f"Bearer {OPENAI_API_KEY}",
+
+        "Content-Type":
+            "application/json",
+    }
+
+    try:
+        response = requests.post(
+            OPENAI_IMAGE_ENDPOINT,
+            headers=headers,
+            json=payload,
+            timeout=180,
         )
 
-        total_title_height += (
-            height + 10
+    except requests.RequestException as exc:
+        raise RuntimeError(
+            f"AI image request failed: {exc}"
+        ) from exc
+
+    if not response.ok:
+        try:
+            error_data = (
+                response.json()
+            )
+
+            message = (
+                error_data
+                .get("error", {})
+                .get(
+                    "message",
+                    response.text,
+                )
+            )
+
+        except Exception:
+            message = (
+                response.text
+            )
+
+        raise RuntimeError(
+            "AI image generation failed: "
+            f"{message}"
         )
 
-    if title_lines:
-        total_title_height -= 10
-
-    sub_bbox = draw.textbbox(
-        (0, 0),
-        language,
-        font=sub_font,
-    )
-
-    sub_height = (
-        sub_bbox[3]
-        - sub_bbox[1]
-    )
-
-    watermark_bbox = draw.textbbox(
-        (0, 0),
-        watermark,
-        font=watermark_font,
-    )
-
-    watermark_height = (
-        watermark_bbox[3]
-        - watermark_bbox[1]
-    )
-
-    block_height = (
-        total_title_height
-        + 28
-        + sub_height
-        + 36
-        + watermark_height
-    )
-
-    y = max(
-        (
-            VIDEO_HEIGHT
-            - block_height
+    try:
+        data = (
+            response.json()
         )
-        // 2,
-        24,
-    )
 
-    for index, line in enumerate(
-        title_lines
+        items = (
+            data.get("data")
+            or []
+        )
+
+        if not items:
+            raise RuntimeError(
+                "AI provider returned no image."
+            )
+
+        item = items[0]
+
+    except Exception as exc:
+        raise RuntimeError(
+            "Unable to read AI image response."
+        ) from exc
+
+    # -----------------------------------------------------
+    # BASE64 IMAGE RESPONSE
+    # -----------------------------------------------------
+
+    image_bytes = None
+
+    if item.get(
+        "b64_json"
     ):
-        bbox = draw.textbbox(
-            (0, 0),
-            line,
-            font=title_font,
+        try:
+            image_bytes = (
+                base64.b64decode(
+                    item[
+                        "b64_json"
+                    ]
+                )
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "Unable to decode AI image."
+            ) from exc
+
+    # -----------------------------------------------------
+    # URL IMAGE RESPONSE
+    # -----------------------------------------------------
+
+    elif item.get(
+        "url"
+    ):
+        try:
+            image_response = (
+                requests.get(
+                    item["url"],
+                    timeout=120,
+                )
+            )
+
+            image_response.raise_for_status()
+
+            image_bytes = (
+                image_response.content
+            )
+
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                "Unable to download AI image."
+            ) from exc
+
+    else:
+        raise RuntimeError(
+            "AI provider did not return image data."
         )
 
-        line_width = (
-            bbox[2]
-            - bbox[0]
+    output_path = (
+        GENERATED_DIR
+        / new_filename(
+            "_ai_scene.jpg"
+        )
+    )
+
+    try:
+        with Image.open(
+            io.BytesIO(
+                image_bytes
+            )
+        ) as generated:
+            generated = (
+                ImageOps
+                .exif_transpose(
+                    generated
+                )
+                .convert(
+                    "RGB"
+                )
+            )
+
+            generated.save(
+                output_path,
+                format="JPEG",
+                quality=92,
+                optimize=True,
+            )
+
+    except Exception as exc:
+        cleanup_file(
+            output_path
         )
 
-        x = (
-            VIDEO_WIDTH
-            - line_width
-        ) // 2
+        raise RuntimeError(
+            "Generated AI image could not be processed."
+        ) from exc
 
-        draw.text(
-            (x, y),
-            line,
-            font=title_font,
-            fill=(
-                255,
-                255,
-                255,
-            ),
-        )
-
-        y += (
-            line_heights[index]
-            + 10
-        )
-
-    y += 18
-
-    sub_width = (
-        sub_bbox[2]
-        - sub_bbox[0]
-    )
-
-    sub_x = (
-        VIDEO_WIDTH
-        - sub_width
-    ) // 2
-
-    draw.text(
-        (sub_x, y),
-        language,
-        font=sub_font,
-        fill=(
-            220,
-            220,
-            220,
-        ),
-    )
-
-    y += (
-        sub_height
-        + 28
-    )
-
-    watermark_width = (
-        watermark_bbox[2]
-        - watermark_bbox[0]
-    )
-
-    watermark_x = (
-        VIDEO_WIDTH
-        - watermark_width
-    ) // 2
-
-    draw.text(
-        (
-            watermark_x,
-            y,
-        ),
-        watermark,
-        font=watermark_font,
-        fill=(
-            180,
-            180,
-            180,
-        ),
-    )
-
-    return image
+    return output_path
 
 
 # =========================================================
@@ -387,70 +469,247 @@ def fit_image_to_canvas(
 ) -> Image.Image:
     source = (
         ImageOps
-        .exif_transpose(source)
-        .convert("RGB")
+        .exif_transpose(
+            source
+        )
+        .convert(
+            "RGB"
+        )
     )
 
-    source.thumbnail(
+    source_ratio = (
+        source.width
+        / source.height
+    )
+
+    target_ratio = (
+        VIDEO_WIDTH
+        / VIDEO_HEIGHT
+    )
+
+    # -----------------------------------------------------
+    # COVER FRAME
+    # -----------------------------------------------------
+
+    if (
+        source_ratio
+        > target_ratio
+    ):
+        new_height = (
+            VIDEO_HEIGHT
+        )
+
+        new_width = int(
+            new_height
+            * source_ratio
+        )
+
+    else:
+        new_width = (
+            VIDEO_WIDTH
+        )
+
+        new_height = int(
+            new_width
+            / source_ratio
+        )
+
+    source = source.resize(
         (
-            VIDEO_WIDTH,
-            VIDEO_HEIGHT,
+            new_width,
+            new_height,
         ),
         RESAMPLE_LANCZOS,
     )
 
-    canvas = Image.new(
-        "RGB",
+    left = max(
         (
-            VIDEO_WIDTH,
-            VIDEO_HEIGHT,
-        ),
-        color=(
-            0,
-            0,
-            0,
-        ),
+            new_width
+            - VIDEO_WIDTH
+        )
+        // 2,
+        0,
     )
 
-    offset_x = (
-        VIDEO_WIDTH
-        - source.width
-    ) // 2
-
-    offset_y = (
-        VIDEO_HEIGHT
-        - source.height
-    ) // 2
-
-    canvas.paste(
-        source,
+    top = max(
         (
-            offset_x,
-            offset_y,
-        ),
+            new_height
+            - VIDEO_HEIGHT
+        )
+        // 2,
+        0,
     )
 
-    return canvas
+    right = (
+        left
+        + VIDEO_WIDTH
+    )
+
+    bottom = (
+        top
+        + VIDEO_HEIGHT
+    )
+
+    return source.crop(
+        (
+            left,
+            top,
+            right,
+            bottom,
+        )
+    )
 
 
 # =========================================================
-# IMAGE VIDEO OVERLAY
+# WATERMARK
 # =========================================================
 
-def overlay_bottom_text(
+def apply_watermark(
     image: Image.Image,
-    prompt: str,
-    language: str,
     watermark: str,
 ) -> Image.Image:
+    if not watermark.strip():
+        return image
+
     draw = ImageDraw.Draw(
         image,
         "RGBA",
     )
 
-    panel_height = 130
+    font = get_font(
+        18
+    )
 
-    panel_y = (
+    text = (
+        watermark.strip()
+    )
+
+    bbox = draw.textbbox(
+        (0, 0),
+        text,
+        font=font,
+    )
+
+    text_width = (
+        bbox[2]
+        - bbox[0]
+    )
+
+    text_height = (
+        bbox[3]
+        - bbox[1]
+    )
+
+    padding_x = 12
+    padding_y = 8
+
+    x = (
+        VIDEO_WIDTH
+        - text_width
+        - padding_x
+        - 18
+    )
+
+    y = (
+        VIDEO_HEIGHT
+        - text_height
+        - padding_y
+        - 18
+    )
+
+    draw.rounded_rectangle(
+        [
+            (
+                x - padding_x,
+                y - padding_y,
+            ),
+            (
+                x
+                + text_width
+                + padding_x,
+                y
+                + text_height
+                + padding_y,
+            ),
+        ],
+        radius=8,
+        fill=(
+            0,
+            0,
+            0,
+            120,
+        ),
+    )
+
+    draw.text(
+        (
+            x,
+            y,
+        ),
+        text,
+        font=font,
+        fill=(
+            255,
+            255,
+            255,
+            220,
+        ),
+    )
+
+    return image
+
+
+# =========================================================
+# OPTIONAL CAPTION
+# =========================================================
+
+def apply_caption(
+    image: Image.Image,
+    prompt: str,
+) -> Image.Image:
+    cleaned = (
+        prompt.strip()
+    )
+
+    if not cleaned:
+        return image
+
+    draw = ImageDraw.Draw(
+        image,
+        "RGBA",
+    )
+
+    font = get_font(
+        22
+    )
+
+    max_width = (
+        VIDEO_WIDTH
+        - 80
+    )
+
+    lines = wrap_text(
+        draw,
+        cleaned,
+        font,
+        max_width,
+    )[:2]
+
+    if not lines:
+        return image
+
+    line_height = 28
+
+    panel_height = (
+        28
+        + (
+            len(lines)
+            * line_height
+        )
+        + 20
+    )
+
+    panel_top = (
         VIDEO_HEIGHT
         - panel_height
     )
@@ -459,7 +718,7 @@ def overlay_bottom_text(
         [
             (
                 0,
-                panel_y,
+                panel_top,
             ),
             (
                 VIDEO_WIDTH,
@@ -470,42 +729,30 @@ def overlay_bottom_text(
             0,
             0,
             0,
-            165,
+            115,
         ),
     )
 
-    title_font = get_font(24)
-    meta_font = get_font(18)
-    watermark_font = get_font(18)
-
-    max_width = VIDEO_WIDTH - 60
-
-    lines = wrap_text(
-        draw,
-        prompt,
-        title_font,
-        max_width,
+    y = (
+        panel_top
+        + 18
     )
-
-    lines = lines[:2]
-
-    y = panel_y + 16
 
     for line in lines:
         bbox = draw.textbbox(
             (0, 0),
             line,
-            font=title_font,
+            font=font,
         )
 
-        line_width = (
+        width = (
             bbox[2]
             - bbox[0]
         )
 
         x = (
             VIDEO_WIDTH
-            - line_width
+            - width
         ) // 2
 
         draw.text(
@@ -514,95 +761,24 @@ def overlay_bottom_text(
                 y,
             ),
             line,
-            font=title_font,
+            font=font,
             fill=(
                 255,
                 255,
                 255,
-                255,
+                240,
             ),
         )
 
-        y += 28
-
-    meta = (
-        f"Language: "
-        f"{language}"
-    )
-
-    meta_bbox = draw.textbbox(
-        (0, 0),
-        meta,
-        font=meta_font,
-    )
-
-    meta_width = (
-        meta_bbox[2]
-        - meta_bbox[0]
-    )
-
-    meta_x = (
-        VIDEO_WIDTH
-        - meta_width
-    ) // 2
-
-    draw.text(
-        (
-            meta_x,
-            y + 4,
-        ),
-        meta,
-        font=meta_font,
-        fill=(
-            220,
-            220,
-            220,
-            255,
-        ),
-    )
-
-    watermark_bbox = draw.textbbox(
-        (0, 0),
-        watermark,
-        font=watermark_font,
-    )
-
-    watermark_width = (
-        watermark_bbox[2]
-        - watermark_bbox[0]
-    )
-
-    wm_x = (
-        VIDEO_WIDTH
-        - watermark_width
-        - 20
-    )
-
-    wm_y = (
-        VIDEO_HEIGHT
-        - 30
-    )
-
-    draw.text(
-        (
-            wm_x,
-            wm_y,
-        ),
-        watermark,
-        font=watermark_font,
-        fill=(
-            255,
-            255,
-            255,
-            210,
-        ),
-    )
+        y += (
+            line_height
+        )
 
     return image
 
 
 # =========================================================
-# SAVE TEMPORARY FRAME
+# SAVE FRAME
 # =========================================================
 
 def save_frame_as_image(
@@ -611,7 +787,9 @@ def save_frame_as_image(
 ) -> Path:
     frame_path = (
         GENERATED_DIR
-        / f"{uuid.uuid4().hex}{suffix}"
+        / new_filename(
+            suffix
+        )
     )
 
     frame.save(
@@ -625,20 +803,23 @@ def save_frame_as_image(
 
 
 # =========================================================
-# CONVERT FRAME TO VIDEO
-# MOVIEPY 1.0.3 COMPATIBLE
+# STATIC IMAGE VIDEO
 # =========================================================
 
 def save_video_from_frame(
     frame_path: Path,
     duration: int,
 ) -> str:
-    duration = sanitize_duration(
-        duration
+    duration = (
+        sanitize_duration(
+            duration
+        )
     )
 
     filename = (
-        f"{uuid.uuid4().hex}.mp4"
+        new_filename(
+            ".mp4"
+        )
     )
 
     output_path = (
@@ -651,7 +832,9 @@ def save_video_from_frame(
     try:
         clip = (
             ImageClip(
-                str(frame_path)
+                str(
+                    frame_path
+                )
             )
             .set_duration(
                 duration
@@ -659,7 +842,9 @@ def save_video_from_frame(
         )
 
         clip.write_videofile(
-            str(output_path),
+            str(
+                output_path
+            ),
             fps=FPS,
             codec="libx264",
             audio=False,
@@ -699,7 +884,141 @@ def save_video_from_frame(
 
 
 # =========================================================
-# TEXT TO VIDEO
+# CINEMATIC AI IMAGE VIDEO
+# =========================================================
+
+def save_cinematic_video(
+    frame_path: Path,
+    duration: int,
+) -> str:
+    duration = (
+        sanitize_duration(
+            duration
+        )
+    )
+
+    filename = (
+        new_filename(
+            ".mp4"
+        )
+    )
+
+    output_path = (
+        GENERATED_DIR
+        / filename
+    )
+
+    base_clip = None
+    moving_clip = None
+    final_clip = None
+
+    try:
+        base_clip = (
+            ImageClip(
+                str(
+                    frame_path
+                )
+            )
+            .set_duration(
+                duration
+            )
+        )
+
+        # -------------------------------------------------
+        # SUBTLE KEN BURNS ZOOM
+        # -------------------------------------------------
+
+        def zoom_factor(
+            t
+        ):
+            progress = (
+                t
+                / max(
+                    duration,
+                    1,
+                )
+            )
+
+            return (
+                1.0
+                + (
+                    0.06
+                    * progress
+                )
+            )
+
+        moving_clip = (
+            base_clip
+            .resize(
+                zoom_factor
+            )
+            .set_position(
+                "center"
+            )
+        )
+
+        final_clip = (
+            CompositeVideoClip(
+                [
+                    moving_clip
+                ],
+                size=(
+                    VIDEO_WIDTH,
+                    VIDEO_HEIGHT,
+                ),
+            )
+            .set_duration(
+                duration
+            )
+        )
+
+        final_clip.write_videofile(
+            str(
+                output_path
+            ),
+            fps=FPS,
+            codec="libx264",
+            audio=False,
+            preset="ultrafast",
+            ffmpeg_params=[
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+            ],
+            threads=1,
+            verbose=False,
+            logger=None,
+        )
+
+    finally:
+        for clip in [
+            final_clip,
+            moving_clip,
+            base_clip,
+        ]:
+            if clip is not None:
+                try:
+                    clip.close()
+                except Exception:
+                    pass
+
+        cleanup_file(
+            frame_path
+        )
+
+        gc.collect()
+
+    if not output_path.exists():
+        raise RuntimeError(
+            "AI video file was not created."
+        )
+
+    return filename
+
+
+# =========================================================
+# TEXT TO AI VISUAL VIDEO
 # =========================================================
 
 def generate_text_video(
@@ -708,50 +1027,93 @@ def generate_text_video(
     duration: int,
     watermark: str,
 ) -> str:
-    image = None
+    ai_image_path = None
     frame_path = None
+    canvas = None
 
     try:
-        image = create_background()
+        # -------------------------------------------------
+        # 1. GENERATE ACTUAL VISUAL FROM PROMPT
+        # -------------------------------------------------
 
-        image = (
-            draw_centered_multiline_text(
-                image=image,
+        ai_image_path = (
+            generate_ai_image(
                 prompt=prompt,
                 language=language,
-                watermark=watermark,
             )
         )
 
-        frame_path = save_frame_as_image(
-            image,
-            "_text_frame.jpg",
+        # -------------------------------------------------
+        # 2. FIT GENERATED VISUAL INTO VIDEO FRAME
+        # -------------------------------------------------
+
+        with Image.open(
+            ai_image_path
+        ) as source:
+            canvas = (
+                fit_image_to_canvas(
+                    source
+                )
+            )
+
+        # -------------------------------------------------
+        # 3. WATERMARK ONLY
+        # -------------------------------------------------
+
+        canvas = (
+            apply_watermark(
+                canvas,
+                watermark,
+            )
+        )
+
+        # Uncomment this if you want the prompt displayed
+        # at the bottom of generated videos.
+        #
+        # canvas = apply_caption(
+        #     canvas,
+        #     prompt,
+        # )
+
+        frame_path = (
+            save_frame_as_image(
+                canvas,
+                "_ai_video_frame.jpg",
+            )
         )
 
     finally:
-        if image is not None:
+        if canvas is not None:
             try:
-                image.close()
+                canvas.close()
             except Exception:
                 pass
 
-            del image
+        cleanup_file(
+            ai_image_path
+        )
 
         gc.collect()
 
     if frame_path is None:
         raise RuntimeError(
-            "Unable to create text video frame."
+            "Unable to prepare AI-generated scene."
         )
 
-    return save_video_from_frame(
-        frame_path=frame_path,
-        duration=duration,
+    # -----------------------------------------------------
+    # 4. TURN IMAGE INTO CINEMATIC MOVING VIDEO
+    # -----------------------------------------------------
+
+    return (
+        save_cinematic_video(
+            frame_path=frame_path,
+            duration=duration,
+        )
     )
 
 
 # =========================================================
-# IMAGE TO VIDEO
+# USER IMAGE TO VIDEO
 # =========================================================
 
 def generate_image_video(
@@ -774,21 +1136,35 @@ def generate_image_video(
                 )
             )
 
+        # -------------------------------------------------
+        # WATERMARK
+        # -------------------------------------------------
+
+        canvas = (
+            apply_watermark(
+                canvas,
+                watermark,
+            )
+        )
+
+        # -------------------------------------------------
+        # OPTIONAL CAPTION
+        # -------------------------------------------------
+
+        if prompt.strip():
             canvas = (
-                overlay_bottom_text(
-                    image=canvas,
-                    prompt=prompt,
-                    language=language,
-                    watermark=watermark,
+                apply_caption(
+                    canvas,
+                    prompt,
                 )
             )
 
-            frame_path = (
-                save_frame_as_image(
-                    canvas,
-                    "_image_frame.jpg",
-                )
+        frame_path = (
+            save_frame_as_image(
+                canvas,
+                "_image_video_frame.jpg",
             )
+        )
 
     finally:
         if canvas is not None:
@@ -797,8 +1173,6 @@ def generate_image_video(
             except Exception:
                 pass
 
-            del canvas
-
         gc.collect()
 
     if frame_path is None:
@@ -806,7 +1180,9 @@ def generate_image_video(
             "Unable to create image video frame."
         )
 
-    return save_video_from_frame(
-        frame_path=frame_path,
-        duration=duration,
+    return (
+        save_cinematic_video(
+            frame_path=frame_path,
+            duration=duration,
+        )
     )
