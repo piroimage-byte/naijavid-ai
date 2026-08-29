@@ -201,6 +201,18 @@ class GenerateRequest(BaseModel):
         pattern=r"^(cinematic|zoom_in|pan_left|pan_right|static)$",
     )
 
+    caption_style: str = Field(
+        default="clean",
+        pattern=r"^(clean|bold|subtitle)$",
+    )
+
+    caption_position: str = Field(
+        default="bottom",
+        pattern=r"^(top|center|bottom)$",
+    )
+
+    show_caption: bool = True
+
     @field_validator(
         "prompt",
         "language",
@@ -340,6 +352,9 @@ async def generate_video(
             watermark=data.watermark,
             aspect_ratio=data.aspect_ratio,
             motion_style=data.motion_style,
+            caption_style=data.caption_style,
+            caption_position=data.caption_position,
+            show_caption=data.show_caption,
         )
 
         local_video_path = (
@@ -395,6 +410,9 @@ async def generate_from_image(
     watermark: str = Form(...),
     aspect_ratio: str = Form("16:9"),
     motion_style: str = Form("cinematic"),
+    caption_style: str = Form("clean"),
+    caption_position: str = Form("bottom"),
+    show_caption: bool = Form(True),
 ):
     upload_path = None
     local_video_path = None
@@ -454,6 +472,18 @@ async def generate_from_image(
                 ),
             )
 
+        if caption_style not in {"clean", "bold", "subtitle"}:
+            raise HTTPException(
+                status_code=422,
+                detail="Caption style must be clean, bold, or subtitle.",
+            )
+
+        if caption_position not in {"top", "center", "bottom"}:
+            raise HTTPException(
+                status_code=422,
+                detail="Caption position must be top, center, or bottom.",
+            )
+
         ext = Path(
             image.filename or ""
         ).suffix.lower()
@@ -485,6 +515,9 @@ async def generate_from_image(
             watermark=watermark,
             aspect_ratio=aspect_ratio,
             motion_style=motion_style,
+            caption_style=caption_style,
+            caption_position=caption_position,
+            show_caption=show_caption,
         )
 
         local_video_path = (

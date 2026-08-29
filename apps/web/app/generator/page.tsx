@@ -38,6 +38,32 @@ type CameraMotion =
   | "pan_right"
   | "static";
 
+type CaptionStyle = "clean" | "bold" | "subtitle";
+type CaptionPosition = "top" | "center" | "bottom";
+
+const CAPTION_STYLES: Array<{
+  value: CaptionStyle;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "clean",
+    label: "Clean",
+    description: "Balanced caption panel for general videos",
+  },
+  {
+    value: "bold",
+    label: "Bold",
+    description: "Larger text for social and promotional videos",
+  },
+  {
+    value: "subtitle",
+    label: "Subtitle",
+    description: "Compact subtitle-style presentation",
+  },
+];
+
+
 const CAMERA_MOTIONS: Array<{
   value: CameraMotion;
   label: string;
@@ -174,6 +200,12 @@ export default function GeneratorPage() {
     useState<AspectRatio>("16:9");
   const [cameraMotion, setCameraMotion] =
     useState<CameraMotion>("cinematic");
+  const [showCaption, setShowCaption] =
+    useState(true);
+  const [captionStyle, setCaptionStyle] =
+    useState<CaptionStyle>("clean");
+  const [captionPosition, setCaptionPosition] =
+    useState<CaptionPosition>("bottom");
 
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -435,6 +467,9 @@ export default function GeneratorPage() {
             watermark,
             aspectRatio,
             cameraMotion,
+            showCaption,
+            captionStyle,
+            captionPosition,
           }),
         }
       );
@@ -485,6 +520,9 @@ export default function GeneratorPage() {
           watermark,
           aspect_ratio: aspectRatio,
           motion_style: cameraMotion,
+          caption_style: captionStyle,
+          caption_position: captionPosition,
+          show_caption: showCaption,
         }),
       }
     );
@@ -564,6 +602,21 @@ export default function GeneratorPage() {
     formData.append(
       "motion_style",
       cameraMotion
+    );
+
+    formData.append(
+      "caption_style",
+      captionStyle
+    );
+
+    formData.append(
+      "caption_position",
+      captionPosition
+    );
+
+    formData.append(
+      "show_caption",
+      String(showCaption)
     );
 
     const response = await fetch(
@@ -1110,6 +1163,111 @@ export default function GeneratorPage() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          {/* CAPTION CONTROLS */}
+
+          <div className="mb-8 rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-2xl font-bold">
+                    Captions
+                  </h3>
+                  <p className="mt-1 text-sm text-white/50">
+                    Show your prompt as readable on-screen text.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCaption(!showCaption)}
+                  className={`rounded-full px-5 py-2 font-semibold ${
+                    showCaption
+                      ? "bg-white text-black"
+                      : "border border-white/20 text-white"
+                  }`}
+                >
+                  {showCaption ? "On" : "Off"}
+                </button>
+              </div>
+
+              {showCaption && (
+                <>
+                  <div>
+                    <label className="block text-lg font-bold mb-3">
+                      Caption Style
+                    </label>
+
+                    <div className="grid sm:grid-cols-3 gap-3">
+                      {CAPTION_STYLES.map((option) => {
+                        const selected =
+                          captionStyle === option.value;
+
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() =>
+                              setCaptionStyle(option.value)
+                            }
+                            className={`rounded-xl border p-4 text-left ${
+                              selected
+                                ? "border-white bg-white text-black"
+                                : "border-white/15 text-white hover:bg-white/10"
+                            }`}
+                          >
+                            <div className="font-bold">
+                              {option.label}
+                            </div>
+                            <div
+                              className={`mt-1 text-sm ${
+                                selected
+                                  ? "text-black/65"
+                                  : "text-white/50"
+                              }`}
+                            >
+                              {option.description}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-lg font-bold mb-3">
+                      Caption Position
+                    </label>
+
+                    <div className="flex flex-wrap gap-3">
+                      {(
+                        [
+                          ["top", "Top"],
+                          ["center", "Center"],
+                          ["bottom", "Bottom"],
+                        ] as Array<[CaptionPosition, string]>
+                      ).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() =>
+                            setCaptionPosition(value)
+                          }
+                          className={`rounded-xl px-5 py-3 font-semibold ${
+                            captionPosition === value
+                              ? "bg-white text-black"
+                              : "border border-white/20 text-white"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 

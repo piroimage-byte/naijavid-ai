@@ -1279,106 +1279,169 @@ def apply_caption(
     prompt: str,
     video_width: int = VIDEO_WIDTH,
     video_height: int = VIDEO_HEIGHT,
+    caption_style: str = "clean",
+    caption_position: str = "bottom",
+    show_caption: bool = True,
 ) -> Image.Image:
 
-    cleaned = (
-        prompt or ""
-    ).strip()
+    if not show_caption:
+        return image
+
+    cleaned = (prompt or "").strip()
 
     if not cleaned:
         return image
+
+    caption_style = (caption_style or "clean").strip().lower()
+    caption_position = (caption_position or "bottom").strip().lower()
+
+    if caption_style not in {"clean", "bold", "subtitle"}:
+        caption_style = "clean"
+
+    if caption_position not in {"top", "center", "bottom"}:
+        caption_position = "bottom"
 
     draw = ImageDraw.Draw(
         image,
         "RGBA",
     )
 
-    font = get_font(
-        22
+    # Scale text with output size while keeping sensible limits.
+    base_font_size = max(
+        22,
+        min(
+            42,
+            int(video_width * 0.035),
+        ),
     )
+
+    if caption_style == "bold":
+        font_size = min(base_font_size + 6, 48)
+        max_width = int(video_width * 0.82)
+        max_lines = 2
+        horizontal_padding = 34
+        vertical_padding = 24
+        panel_fill = (0, 0, 0, 155)
+    elif caption_style == "subtitle":
+        font_size = max(20, base_font_size - 2)
+        max_width = int(video_width * 0.90)
+        max_lines = 2
+        horizontal_padding = 24
+        vertical_padding = 16
+        panel_fill = (0, 0, 0, 120)
+    else:
+        font_size = base_font_size
+        max_width = int(video_width * 0.86)
+        max_lines = 2
+        horizontal_padding = 28
+        vertical_padding = 20
+        panel_fill = (0, 0, 0, 135)
+
+    font = get_font(font_size)
 
     lines = wrap_text(
         draw,
         cleaned,
         font,
-        video_width - 80,
-    )[:2]
+        max_width,
+    )[:max_lines]
 
     if not lines:
         return image
 
-    line_height = 29
-
-    panel_height = (
-        35
-        + (
-            len(lines)
-            * line_height
-        )
-        + 18
-    )
-
-    panel_top = (
-        video_height
-        - panel_height
-    )
-
-    draw.rectangle(
-        (
-            0,
-            panel_top,
-            video_width,
-            video_height,
-        ),
-        fill=(
-            0,
-            0,
-            0,
-            110,
-        ),
-    )
-
-    y = (
-        panel_top
-        + 18
-    )
+    line_gap = max(8, int(font_size * 0.28))
+    line_heights = []
 
     for line in lines:
+        bbox = draw.textbbox(
+            (0, 0),
+            line,
+            font=font,
+        )
+        line_heights.append(
+            max(
+                font_size,
+                bbox[3] - bbox[1],
+            )
+        )
 
+    text_height = sum(line_heights)
+
+    if len(lines) > 1:
+        text_height += line_gap * (len(lines) - 1)
+
+    panel_height = (
+        text_height
+        + vertical_padding * 2
+    )
+
+    edge_margin = max(
+        18,
+        int(video_height * 0.035),
+    )
+
+    if caption_position == "top":
+        panel_top = edge_margin
+    elif caption_position == "center":
+        panel_top = max(
+            edge_margin,
+            (video_height - panel_height) // 2,
+        )
+    else:
+        panel_top = max(
+            edge_margin,
+            video_height - panel_height - edge_margin,
+        )
+
+    panel_bottom = min(
+        video_height - edge_margin,
+        panel_top + panel_height,
+    )
+
+    # Rounded caption panel.
+    draw.rounded_rectangle(
+        (
+            horizontal_padding,
+            panel_top,
+            video_width - horizontal_padding,
+            panel_bottom,
+        ),
+        radius=18,
+        fill=panel_fill,
+    )
+
+    y = panel_top + vertical_padding
+
+    for index, line in enumerate(lines):
         bbox = draw.textbbox(
             (0, 0),
             line,
             font=font,
         )
 
-        width = (
-            bbox[2]
-            - bbox[0]
+        width = bbox[2] - bbox[0]
+
+        x = max(
+            horizontal_padding + 18,
+            (video_width - width) // 2,
         )
 
-        x = (
-            video_width
-            - width
-        ) // 2
-
+        # Small shadow improves readability over bright images.
         draw.text(
-            (
-                x,
-                y,
-            ),
+            (x + 2, y + 2),
             line,
             font=font,
-            fill=(
-                255,
-                255,
-                255,
-                240,
-            ),
+            fill=(0, 0, 0, 210),
         )
 
-        y += (
-            line_height
+        draw.text(
+            (x, y),
+            line,
+            font=font,
+            fill=(255, 255, 255, 245),
         )
+
+        y += line_heights[index] + line_gap
 
     return image
 
@@ -1847,6 +1910,9 @@ def generate_text_video(
     watermark: str,
     aspect_ratio: str = "16:9",
     motion_style: str = "cinematic",
+    caption_style: str = "clean",
+    caption_position: str = "bottom",
+    show_caption: bool = True,
 ) -> str:
 
     language = (
@@ -1922,22 +1988,20 @@ def generate_text_video(
         )
 
         # -------------------------------------------------
-        # Development fallback shows prompt
+        # Caption
         # -------------------------------------------------
 
-        if (
-            VISUAL_MODE
-            == "fallback"
-        ):
-
-            canvas = (
-                apply_caption(
-                    canvas,
-                    prompt,
-                    video_width,
-                    video_height,
-                )
+        canvas = (
+            apply_caption(
+                canvas,
+                prompt,
+                video_width,
+                video_height,
+                caption_style,
+                caption_position,
+                show_caption,
             )
+        )
 
         frame_path = (
             save_frame_as_image(
@@ -1997,6 +2061,9 @@ def generate_image_video(
     watermark: str,
     aspect_ratio: str = "16:9",
     motion_style: str = "cinematic",
+    caption_style: str = "clean",
+    caption_position: str = "bottom",
+    show_caption: bool = True,
 ) -> str:
 
     language = normalize_language(language)
@@ -2039,6 +2106,9 @@ def generate_image_video(
                 cleaned_prompt,
                 video_width,
                 video_height,
+                caption_style,
+                caption_position,
+                show_caption,
             )
 
         # -------------------------------------------------
