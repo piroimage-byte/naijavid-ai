@@ -1633,14 +1633,15 @@ def save_cinematic_video(
 
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
 
-    # Gentle 5% push-in across the clip.
-    zoom_step = 0.05 / max(duration * FPS, 1)
+    # Stronger cinematic push-in with gentle camera drift.
+    # Target zoom: 10% across the full clip.
+    zoom_step = 0.10 / max(duration * FPS, 1)
 
     vf = (
         f"zoompan="
-        f"z='min(max(zoom,pzoom)+{zoom_step:.8f},1.05)':"
-        f"x='iw/2-(iw/zoom/2)':"
-        f"y='ih/2-(ih/zoom/2)':"
+        f"z='min(max(zoom,pzoom)+{zoom_step:.8f},1.10)':"
+        f"x='iw/2-(iw/zoom/2)+sin(on/18)*8':"
+        f"y='ih/2-(ih/zoom/2)+cos(on/24)*5':"
         f"d=1:"
         f"s={VIDEO_WIDTH}x{VIDEO_HEIGHT}:"
         f"fps={FPS},"
