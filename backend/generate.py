@@ -3,6 +3,7 @@ import gc
 import io
 import os
 import subprocess
+import shutil
 import uuid
 from pathlib import Path
 
@@ -1973,6 +1974,326 @@ def save_cinematic_video(
         )
 
     return filename
+
+
+
+# =========================================================
+# MULTIPLE IMAGE VIDEO
+# =========================================================
+
+def render_silent_image_scene(
+    frame_path: Path,
+    duration: float,
+    video_width: int,
+    video_height: int,
+    motion_style: str,
+) -> Path:
+    """Render one image as a silent motion scene."""
+    duration = max(0.5, float(duration))
+    output_path = GENERATED_DIR / new_filename("_scene.mp4")
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+
+    vf = build_motion_filter(
+        motion_style=motion_style,
+        duration=max(1, int(round(duration))),
+        video_width=video_width,
+        video_height=video_height,
+    )
+
+    command = [
+        ffmpeg_exe,
+        "-y",
+        "-loop", "1",
+        "-framerate", str(FPS),
+        "-i", str(frame_path),
+        "-vf", vf,
+        "-t", f"{duration:.3f}",
+        "-r", str(FPS),
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-tune", "stillimage",
+        "-pix_fmt", "yuv420p",
+        "-an",
+        str(output_path),
+    ]
+
+    result = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        cleanup_file(output_path)
+        raise RuntimeError(
+            "FFmpeg scene render failed: " + result.stderr[-1200:]
+        )
+
+    return output_path
+
+
+def combine_image_scenes(
+    scene_paths: list[Path],
+    duration: int,
+    audio_path: Path | None = None,
+    background_music: str = "none",
+    music_volume: int = 15,
+) -> str:
+    """Concatenate silent scenes and add narration/background music once."""
+    if not scene_paths:
+        raise RuntimeError("No image scenes were created.")
+
+    duration = sanitize_duration(duration)
+    music_volume = max(0, min(30, int(music_volume)))
+    background_music = normalize_background_music(background_music)
+    music_path = get_background_music_path(background_music)
+
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    concat_path = GENERATED_DIR / new_filename("_concat.txt")
+    silent_path = GENERATED_DIR / new_filename("_silent_multi.mp4")
+    output_path = GENERATED_DIR / new_filename(".mp4")
+
+    try:
+        concat_path.write_text(
+            "".join(
+                f"file '{str(path).replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39))}'\n"
+                for path in scene_paths
+            ),
+            encoding="utf-8",
+        )
+
+        concat_cmd = [
+            ffmpeg_exe,
+            "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_path),
+            "-c", "copy",
+            "-t", str(duration),
+            str(silent_path),
+        ]
+
+        concat_result = subprocess.run(
+            concat_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+
+        if concat_result.returncode != 0:
+            raise RuntimeError(
+                "FFmpeg scene combine failed: " + concat_result.stderr[-1200:]
+            )
+
+        has_narration = audio_path is not None and audio_path.exists()
+        has_music = music_path is not None and music_path.exists()
+
+        # No audio at all.
+        if not has_narration and not has_music:
+            shutil.copy2(silent_path, output_path)
+            return output_path.name
+
+        command = [
+            ffmpeg_exe,
+            "-y",
+            "-i", str(silent_path),
+        ]
+
+        narration_input = None
+        music_input = None
+        next_input = 1
+
+        if has_narration:
+            narration_input = next_input
+            command.extend(["-i", str(audio_path)])
+            next_input += 1
+
+        if has_music:
+            music_input = next_input
+            command.extend(["-stream_loop", "-1", "-i", str(music_path)])
+            next_input += 1
+
+        filter_parts = []
+        audio_map = None
+
+        if has_narration and has_music:
+            music_gain = music_volume / 100.0
+            filter_parts.extend([
+                f"[{narration_input}:a]volume=1.0[narr]",
+                f"[{music_input}:a]volume={music_gain:.3f},"
+                f"atrim=duration={duration},"
+                f"afade=t=in:st=0:d=0.5,"
+                f"afade=t=out:st={max(0.0, duration - 0.8):.3f}:d=0.8[music]",
+                "[narr][music]amix=inputs=2:duration=longest:dropout_transition=2[aout]",
+            ])
+            audio_map = "[aout]"
+        elif has_narration:
+            audio_map = f"{narration_input}:a:0"
+        else:
+            music_gain = music_volume / 100.0
+            filter_parts.append(
+                f"[{music_input}:a]volume={music_gain:.3f},"
+                f"atrim=duration={duration},"
+                f"afade=t=in:st=0:d=0.5,"
+                f"afade=t=out:st={max(0.0, duration - 0.8):.3f}:d=0.8[aout]"
+            )
+            audio_map = "[aout]"
+
+        if filter_parts:
+            command.extend(["-filter_complex", ";".join(filter_parts)])
+
+        command.extend([
+            "-map", "0:v:0",
+            "-map", audio_map,
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "96k",
+            "-t", str(duration),
+            "-shortest",
+            "-movflags", "+faststart",
+            str(output_path),
+        ])
+
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                "FFmpeg multi-image audio mix failed: " + result.stderr[-1200:]
+            )
+
+        return output_path.name
+
+    finally:
+        cleanup_file(concat_path)
+        cleanup_file(silent_path)
+        cleanup_file(audio_path)
+        for scene_path in scene_paths:
+            cleanup_file(scene_path)
+        gc.collect()
+
+
+def generate_multi_image_video(
+    image_paths: list[str],
+    prompt: str,
+    language: str,
+    duration: int,
+    watermark: str,
+    aspect_ratio: str = "16:9",
+    motion_style: str = "cinematic",
+    caption_style: str = "clean",
+    caption_position: str = "bottom",
+    show_caption: bool = True,
+    show_watermark: bool = True,
+    watermark_position: str = "bottom_right",
+    watermark_opacity: int = 70,
+    background_music: str = "none",
+    music_volume: int = 15,
+) -> str:
+    """Create one video from 2-5 uploaded images."""
+    if len(image_paths) < 2 or len(image_paths) > 5:
+        raise ValueError("Multiple-image video requires between 2 and 5 images.")
+
+    language = normalize_language(language)
+    duration = sanitize_duration(duration)
+    video_width, video_height = get_video_dimensions(aspect_ratio)
+    motion_style = normalize_motion_style(motion_style)
+    cleaned_prompt = (prompt or "").strip()
+
+    frame_paths: list[Path] = []
+    scene_paths: list[Path] = []
+    audio_path = None
+
+    try:
+        scene_duration = duration / len(image_paths)
+
+        for image_path in image_paths:
+            with Image.open(image_path) as source:
+                canvas = fit_image_to_canvas(
+                    source,
+                    video_width,
+                    video_height,
+                )
+
+            canvas = apply_language_badge(
+                canvas,
+                language,
+            )
+
+            if cleaned_prompt:
+                canvas = apply_caption(
+                    canvas,
+                    cleaned_prompt,
+                    video_width,
+                    video_height,
+                    caption_style,
+                    caption_position,
+                    show_caption,
+                )
+
+            canvas = apply_watermark(
+                canvas,
+                watermark,
+                video_width,
+                video_height,
+                show_watermark,
+                watermark_position,
+                watermark_opacity,
+            )
+
+            frame_path = save_frame_as_image(
+                canvas,
+                "_multi_frame.jpg",
+            )
+            frame_paths.append(frame_path)
+
+            try:
+                canvas.close()
+            except Exception:
+                pass
+
+            scene_path = render_silent_image_scene(
+                frame_path=frame_path,
+                duration=scene_duration,
+                video_width=video_width,
+                video_height=video_height,
+                motion_style=motion_style,
+            )
+            scene_paths.append(scene_path)
+
+        if cleaned_prompt:
+            try:
+                audio_path = generate_tts_audio(
+                    text=cleaned_prompt,
+                    language=language,
+                )
+            except Exception as exc:
+                print(
+                    "NaijaVid Multiple-Image TTS error:",
+                    str(exc),
+                )
+                audio_path = None
+
+        return combine_image_scenes(
+            scene_paths=scene_paths,
+            duration=duration,
+            audio_path=audio_path,
+            background_music=background_music,
+            music_volume=music_volume,
+        )
+
+    finally:
+        for frame_path in frame_paths:
+            cleanup_file(frame_path)
+        gc.collect()
 
 
 # =========================================================

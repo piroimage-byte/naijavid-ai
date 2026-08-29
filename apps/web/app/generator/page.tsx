@@ -29,7 +29,7 @@ type GenerationAccess = {
   subscriptionExpiresAt?: string | null;
 };
 
-type Mode = "text" | "image";
+type Mode = "text" | "image" | "multi";
 type AspectRatio = "16:9" | "9:16" | "1:1";
 type CameraMotion =
   | "cinematic"
@@ -249,6 +249,8 @@ export default function GeneratorPage() {
 
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
+  const [multiImageFiles, setMultiImageFiles] = useState<File[]>([]);
+  const [multiImagePreviews, setMultiImagePreviews] = useState<string[]>([]);
 
   const [videoUrl, setVideoUrl] = useState("");
 
@@ -399,6 +401,19 @@ export default function GeneratorPage() {
     setImagePreview(previewUrl);
   }
 
+  function handleMultiImageChange(
+    event: ChangeEvent<HTMLInputElement>
+  ) {
+    const files = Array.from(event.target.files || []).slice(0, 5);
+
+    multiImagePreviews.forEach((url) => URL.revokeObjectURL(url));
+
+    setMultiImageFiles(files);
+    setMultiImagePreviews(
+      files.map((file) => URL.createObjectURL(file))
+    );
+  }
+
   // --------------------------------------------------
   // GENERATION ACCESS
   // --------------------------------------------------
@@ -515,6 +530,12 @@ export default function GeneratorPage() {
             watermarkOpacity,
             backgroundMusic,
             musicVolume,
+            imageCount:
+              mode === "multi"
+                ? multiImageFiles.length
+                : mode === "image"
+                  ? 1
+                  : 0,
           }),
         }
       );
@@ -729,6 +750,75 @@ export default function GeneratorPage() {
   }
 
   // --------------------------------------------------
+  // MULTIPLE IMAGES TO VIDEO
+  // --------------------------------------------------
+
+  async function generateMultiImageVideo() {
+    if (multiImageFiles.length < 2) {
+      throw new Error("Please select at least 2 images.");
+    }
+
+    if (multiImageFiles.length > 5) {
+      throw new Error("You can upload a maximum of 5 images.");
+    }
+
+    const formData = new FormData();
+
+    multiImageFiles.forEach((file) => {
+      formData.append("images", file);
+    });
+
+    formData.append(
+      "prompt",
+      buildStyledPrompt(prompt, videoStyle)
+    );
+    formData.append("language", language);
+    formData.append("duration", String(duration));
+    formData.append("watermark", watermark);
+    formData.append("aspect_ratio", aspectRatio);
+    formData.append("motion_style", cameraMotion);
+    formData.append("caption_style", captionStyle);
+    formData.append("caption_position", captionPosition);
+    formData.append("show_caption", String(showCaption));
+    formData.append("show_watermark", String(showWatermark));
+    formData.append("watermark_position", watermarkPosition);
+    formData.append("watermark_opacity", String(watermarkOpacity));
+    formData.append("background_music", backgroundMusic);
+    formData.append("music_volume", String(musicVolume));
+
+    const response = await fetch(
+      `${BACKEND_URL}/generate-from-images`,
+      {
+        method: "POST",
+        body: formData,
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data?.detail ||
+          data?.error ||
+          data?.message ||
+          "Multiple-image video generation failed."
+      );
+    }
+
+    const generatedUrl =
+      data.videoUrl ||
+      data.video_url ||
+      data.url ||
+      data.output_url;
+
+    if (!generatedUrl) {
+      throw new Error("Backend did not return a video URL.");
+    }
+
+    return generatedUrl;
+  }
+
+  // --------------------------------------------------
   // GENERATE VIDEO
   // --------------------------------------------------
 
@@ -761,6 +851,16 @@ export default function GeneratorPage() {
       return;
     }
 
+    if (
+      mode === "multi" &&
+      multiImageFiles.length < 2
+    ) {
+      setError(
+        "Please upload between 2 and 5 images."
+      );
+      return;
+    }
+
     try {
       setGenerating(true);
       setError("");
@@ -789,7 +889,9 @@ export default function GeneratorPage() {
       const generatedUrl =
         mode === "text"
           ? await generateTextVideo()
-          : await generateImageVideo();
+          : mode === "image"
+            ? await generateImageVideo()
+            : await generateMultiImageVideo();
 
       setVideoUrl(
         generatedUrl
@@ -1051,6 +1153,20 @@ export default function GeneratorPage() {
             >
               Image to Video
             </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setMode("multi")
+              }
+              className={`px-8 py-4 rounded-2xl font-semibold ${
+                mode === "multi"
+                  ? "bg-white text-black"
+                  : "border border-white/20 text-white"
+              }`}
+            >
+              Multiple Images
+            </button>
           </div>
 
           {/* IMAGE UPLOAD */}
@@ -1078,6 +1194,46 @@ export default function GeneratorPage() {
                   alt="Selected preview"
                   className="mt-4 max-h-80 rounded-xl border border-white/10"
                 />
+              )}
+            </div>
+          )}
+
+          {mode === "multi" && (
+            <div className="mb-8">
+              <label className="block text-xl font-bold mb-3">
+                Upload 2 to 5 Images
+              </label>
+
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleMultiImageChange}
+                className="block w-full rounded-xl border border-white/20 bg-black/40 p-4"
+              />
+
+              <p className="mt-2 text-sm text-white/50">
+                Images will play in the order you select them. The total video duration is shared evenly across all images.
+              </p>
+
+              {multiImagePreviews.length > 0 && (
+                <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3">
+                  {multiImagePreviews.map((preview, index) => (
+                    <div
+                      key={preview}
+                      className="rounded-xl border border-white/10 bg-black/30 p-2"
+                    >
+                      <img
+                        src={preview}
+                        alt={`Selected image ${index + 1}`}
+                        className="aspect-square w-full rounded-lg object-cover"
+                      />
+                      <p className="mt-2 text-center text-xs text-white/60">
+                        Scene {index + 1}
+                      </p>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}

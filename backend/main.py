@@ -16,6 +16,7 @@ from generate import (
     UPLOADS_DIR,
     MAX_DURATION_SECONDS,
     generate_image_video,
+    generate_multi_image_video,
     generate_text_video,
 )
 
@@ -43,6 +44,8 @@ app.add_middleware(
 # =========================================================
 
 MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
+MAX_MULTI_IMAGES = 5
+MIN_MULTI_IMAGES = 2
 
 ALLOWED_EXTENSIONS = {
     ".jpg",
@@ -643,3 +646,124 @@ async def generate_from_image(
             cleanup_file(
                 local_video_path
             )
+
+
+# =========================================================
+# MULTIPLE IMAGES TO VIDEO
+# =========================================================
+
+@app.post("/generate-from-images")
+async def generate_from_images(
+    images: list[UploadFile] = File(...),
+    prompt: str = Form(...),
+    language: str = Form(...),
+    duration: int = Form(...),
+    watermark: str = Form(...),
+    aspect_ratio: str = Form("16:9"),
+    motion_style: str = Form("cinematic"),
+    caption_style: str = Form("clean"),
+    caption_position: str = Form("bottom"),
+    show_caption: bool = Form(True),
+    show_watermark: bool = Form(True),
+    watermark_position: str = Form("bottom_right"),
+    watermark_opacity: int = Form(70),
+    background_music: str = Form("none"),
+    music_volume: int = Form(15),
+):
+    upload_paths: list[Path] = []
+    local_video_path = None
+
+    try:
+        if len(images) < MIN_MULTI_IMAGES or len(images) > MAX_MULTI_IMAGES:
+            raise HTTPException(
+                status_code=422,
+                detail="Please upload between 2 and 5 images.",
+            )
+
+        prompt = normalize_text(
+            prompt,
+            "Prompt",
+            min_len=3,
+            max_len=500,
+        )
+        language = normalize_text(
+            language,
+            "Language",
+            min_len=2,
+            max_len=50,
+        )
+        watermark = normalize_text(
+            watermark,
+            "Watermark",
+            min_len=1,
+            max_len=100,
+        )
+
+        if duration < 1 or duration > MAX_DURATION_SECONDS:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Duration must be between 1 and "
+                    f"{MAX_DURATION_SECONDS} seconds."
+                ),
+            )
+
+        for upload in images:
+            ext = Path(upload.filename or "").suffix.lower()
+
+            if ext not in ALLOWED_EXTENSIONS:
+                raise HTTPException(
+                    status_code=400,
+                    detail="All images must be JPG, JPEG, PNG, or WEBP.",
+                )
+
+            upload_path = UPLOADS_DIR / f"{uuid.uuid4().hex}{ext}"
+
+            await save_upload_file_streaming(
+                upload,
+                upload_path,
+            )
+            upload_paths.append(upload_path)
+
+        filename = generate_multi_image_video(
+            image_paths=[str(path) for path in upload_paths],
+            prompt=prompt,
+            language=language,
+            duration=duration,
+            watermark=watermark,
+            aspect_ratio=aspect_ratio,
+            motion_style=motion_style,
+            caption_style=caption_style,
+            caption_position=caption_position,
+            show_caption=show_caption,
+            show_watermark=show_watermark,
+            watermark_position=watermark_position,
+            watermark_opacity=watermark_opacity,
+            background_music=background_music,
+            music_volume=music_volume,
+        )
+
+        local_video_path = GENERATED_DIR / filename
+        permanent_video_url = upload_video_to_firebase(local_video_path)
+
+        return {
+            "success": True,
+            "message": "Multiple-image video generated and uploaded successfully.",
+            "video_url": permanent_video_url,
+            "image_count": len(upload_paths),
+            "duration": min(duration, MAX_DURATION_SECONDS),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Multiple-image generation failed: {exc}",
+        )
+    finally:
+        for upload_path in upload_paths:
+            cleanup_file(upload_path)
+        if local_video_path is not None:
+            cleanup_file(local_video_path)
+
