@@ -31,6 +31,25 @@ type GenerationAccess = {
 
 type Mode = "text" | "image";
 type AspectRatio = "16:9" | "9:16" | "1:1";
+type CameraMotion =
+  | "cinematic"
+  | "zoom_in"
+  | "pan_left"
+  | "pan_right"
+  | "static";
+
+const CAMERA_MOTIONS: Array<{
+  value: CameraMotion;
+  label: string;
+  description: string;
+}> = [
+  { value: "cinematic", label: "Cinematic", description: "Push-in with gentle camera drift" },
+  { value: "zoom_in", label: "Zoom In", description: "Smooth centred push toward the subject" },
+  { value: "pan_left", label: "Pan Left", description: "Slow movement from right to left" },
+  { value: "pan_right", label: "Pan Right", description: "Slow movement from left to right" },
+  { value: "static", label: "Static", description: "No camera movement" },
+];
+
 
 const ASPECT_RATIOS: Array<{
   value: AspectRatio;
@@ -153,6 +172,8 @@ export default function GeneratorPage() {
     useState<VideoStyle>("cinematic");
   const [aspectRatio, setAspectRatio] =
     useState<AspectRatio>("16:9");
+  const [cameraMotion, setCameraMotion] =
+    useState<CameraMotion>("cinematic");
 
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -413,6 +434,7 @@ export default function GeneratorPage() {
             videoUrl: generatedVideoUrl,
             watermark,
             aspectRatio,
+            cameraMotion,
           }),
         }
       );
@@ -462,6 +484,7 @@ export default function GeneratorPage() {
           duration,
           watermark,
           aspect_ratio: aspectRatio,
+          motion_style: cameraMotion,
         }),
       }
     );
@@ -536,6 +559,11 @@ export default function GeneratorPage() {
     formData.append(
       "aspect_ratio",
       aspectRatio
+    );
+
+    formData.append(
+      "motion_style",
+      cameraMotion
     );
 
     const response = await fetch(
@@ -1037,6 +1065,44 @@ export default function GeneratorPage() {
                         selected
                           ? "text-black/70"
                           : "text-white/55"
+                      }`}
+                    >
+                      {option.description}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* CAMERA MOTION */}
+
+          <div className="mb-8">
+            <label className="block text-2xl font-bold mb-4">
+              Camera Motion
+            </label>
+
+            <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              {CAMERA_MOTIONS.map((option) => {
+                const selected = cameraMotion === option.value;
+
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setCameraMotion(option.value)}
+                    className={`rounded-2xl border p-4 text-left transition ${
+                      selected
+                        ? "border-white bg-white text-black"
+                        : "border-white/15 bg-black/30 text-white hover:bg-white/10"
+                    }`}
+                  >
+                    <div className="font-bold">
+                      {option.label}
+                    </div>
+                    <div
+                      className={`mt-2 text-sm leading-5 ${
+                        selected ? "text-black/70" : "text-white/55"
                       }`}
                     >
                       {option.description}

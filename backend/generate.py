@@ -102,6 +102,86 @@ def get_video_dimensions(
     return ASPECT_RATIOS[cleaned]
 
 
+MOTION_STYLES = {
+    "cinematic",
+    "zoom_in",
+    "pan_left",
+    "pan_right",
+    "static",
+}
+
+
+def normalize_motion_style(motion_style: str) -> str:
+    cleaned = (motion_style or "cinematic").strip().lower()
+
+    if cleaned not in MOTION_STYLES:
+        raise ValueError(
+            "Unsupported camera motion. Use cinematic, zoom_in, "
+            "pan_left, pan_right, or static."
+        )
+
+    return cleaned
+
+
+def build_motion_filter(
+    motion_style: str,
+    duration: int,
+    video_width: int,
+    video_height: int,
+) -> str:
+    motion_style = normalize_motion_style(motion_style)
+    total_frames = max(duration * FPS, 1)
+
+    if motion_style == "static":
+        return (
+            f"scale={video_width}:{video_height}:"
+            f"force_original_aspect_ratio=increase,"
+            f"crop={video_width}:{video_height},"
+            f"fps={FPS},format=yuv420p"
+        )
+
+    if motion_style == "zoom_in":
+        zoom_step = 0.12 / total_frames
+        return (
+            f"zoompan="
+            f"z='min(max(zoom,pzoom)+{zoom_step:.8f},1.12)':"
+            f"x='iw/2-(iw/zoom/2)':"
+            f"y='ih/2-(ih/zoom/2)':"
+            f"d=1:s={video_width}x{video_height}:fps={FPS},"
+            f"format=yuv420p"
+        )
+
+    if motion_style == "pan_left":
+        return (
+            f"zoompan="
+            f"z='1.10':"
+            f"x='(iw-iw/zoom)*(1-on/{total_frames})':"
+            f"y='ih/2-(ih/zoom/2)':"
+            f"d=1:s={video_width}x{video_height}:fps={FPS},"
+            f"format=yuv420p"
+        )
+
+    if motion_style == "pan_right":
+        return (
+            f"zoompan="
+            f"z='1.10':"
+            f"x='(iw-iw/zoom)*(on/{total_frames})':"
+            f"y='ih/2-(ih/zoom/2)':"
+            f"d=1:s={video_width}x{video_height}:fps={FPS},"
+            f"format=yuv420p"
+        )
+
+    zoom_step = 0.10 / total_frames
+    return (
+        f"zoompan="
+        f"z='min(max(zoom,pzoom)+{zoom_step:.8f},1.10)':"
+        f"x='iw/2-(iw/zoom/2)+sin(on/18)*8':"
+        f"y='ih/2-(ih/zoom/2)+cos(on/24)*5':"
+        f"d=1:s={video_width}x{video_height}:fps={FPS},"
+        f"format=yuv420p"
+    )
+
+
 # =========================================================
 # NIGERIAN LANGUAGE FOUNDATION
 # =========================================================
@@ -1644,6 +1724,7 @@ def save_cinematic_video(
     audio_path: Path | None = None,
     video_width: int = VIDEO_WIDTH,
     video_height: int = VIDEO_HEIGHT,
+    motion_style: str = "cinematic",
 ) -> str:
     """
     Fast renderer with lightweight cinematic motion.
@@ -1660,20 +1741,13 @@ def save_cinematic_video(
 
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
 
-    # Stronger cinematic push-in with gentle camera drift.
-    # Target zoom: 10% across the full clip.
-    zoom_step = 0.10 / max(duration * FPS, 1)
-
-    vf = (
-        f"zoompan="
-        f"z='min(max(zoom,pzoom)+{zoom_step:.8f},1.10)':"
-        f"x='iw/2-(iw/zoom/2)+sin(on/18)*8':"
-        f"y='ih/2-(ih/zoom/2)+cos(on/24)*5':"
-        f"d=1:"
-        f"s={video_width}x{video_height}:"
-        f"fps={FPS},"
-        f"format=yuv420p"
+    vf = build_motion_filter(
+        motion_style=motion_style,
+        duration=duration,
+        video_width=video_width,
+        video_height=video_height,
     )
+
 
     command = [
         ffmpeg_exe,
@@ -1772,6 +1846,7 @@ def generate_text_video(
     duration: int,
     watermark: str,
     aspect_ratio: str = "16:9",
+    motion_style: str = "cinematic",
 ) -> str:
 
     language = (
@@ -1782,6 +1857,10 @@ def generate_text_video(
 
     video_width, video_height = get_video_dimensions(
         aspect_ratio
+    )
+
+    motion_style = normalize_motion_style(
+        motion_style
     )
 
     visual_path = None
@@ -1902,6 +1981,7 @@ def generate_text_video(
         audio_path=audio_path,
         video_width=video_width,
         video_height=video_height,
+        motion_style=motion_style,
     )
 
 
@@ -1916,12 +1996,17 @@ def generate_image_video(
     duration: int,
     watermark: str,
     aspect_ratio: str = "16:9",
+    motion_style: str = "cinematic",
 ) -> str:
 
     language = normalize_language(language)
 
     video_width, video_height = get_video_dimensions(
         aspect_ratio
+    )
+
+    motion_style = normalize_motion_style(
+        motion_style
     )
 
     cleaned_prompt = (prompt or "").strip()
@@ -2030,4 +2115,5 @@ def generate_image_video(
         audio_path=audio_path,
         video_width=video_width,
         video_height=video_height,
+        motion_style=motion_style,
     )

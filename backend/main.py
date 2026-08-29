@@ -196,6 +196,11 @@ class GenerateRequest(BaseModel):
         pattern=r"^(16:9|9:16|1:1)$",
     )
 
+    motion_style: str = Field(
+        default="cinematic",
+        pattern=r"^(cinematic|zoom_in|pan_left|pan_right|static)$",
+    )
+
     @field_validator(
         "prompt",
         "language",
@@ -334,6 +339,7 @@ async def generate_video(
             duration=data.duration,
             watermark=data.watermark,
             aspect_ratio=data.aspect_ratio,
+            motion_style=data.motion_style,
         )
 
         local_video_path = (
@@ -388,6 +394,7 @@ async def generate_from_image(
     duration: int = Form(...),
     watermark: str = Form(...),
     aspect_ratio: str = Form("16:9"),
+    motion_style: str = Form("cinematic"),
 ):
     upload_path = None
     local_video_path = None
@@ -432,6 +439,21 @@ async def generate_from_image(
                 detail="Aspect ratio must be 16:9, 9:16, or 1:1.",
             )
 
+        if motion_style not in {
+            "cinematic",
+            "zoom_in",
+            "pan_left",
+            "pan_right",
+            "static",
+        }:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Camera motion must be cinematic, zoom_in, "
+                    "pan_left, pan_right, or static."
+                ),
+            )
+
         ext = Path(
             image.filename or ""
         ).suffix.lower()
@@ -462,6 +484,7 @@ async def generate_from_image(
             duration=duration,
             watermark=watermark,
             aspect_ratio=aspect_ratio,
+            motion_style=motion_style,
         )
 
         local_video_path = (
