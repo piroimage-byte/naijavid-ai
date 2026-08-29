@@ -2,10 +2,12 @@ import base64
 import gc
 import io
 import os
+import subprocess
 import uuid
 from pathlib import Path
 
 import requests
+import imageio_ffmpeg
 from gtts import gTTS
 
 # =========================================================
@@ -1617,12 +1619,11 @@ def save_cinematic_video(
     audio_path: Path | None = None,
 ) -> str:
     """
-    Fast NaijaVid renderer.
+    Fast renderer with lightweight cinematic motion.
 
-    The previous implementation resized the image on every video frame to
-    create a gradual zoom. That is attractive but CPU-expensive on Render.
-    This version renders one prepared frame for the full duration and keeps
-    narration, H.264, AAC, fast-start playback and the same public API.
+    Motion is handled directly by FFmpeg's zoompan filter instead of
+    MoviePy resizing every frame. This keeps a gentle zoom while reducing
+    Python-side rendering overhead.
     """
 
     duration = sanitize_duration(duration)
@@ -1630,92 +1631,99 @@ def save_cinematic_video(
     filename = new_filename(".mp4")
     output_path = GENERATED_DIR / filename
 
-    video_clip = None
-    audio_clip = None
-    prepared_audio_clip = None
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+
+    # Gentle 5% push-in across the clip.
+    zoom_step = 0.05 / max(duration * FPS, 1)
+
+    vf = (
+        f"zoompan="
+        f"z='min(max(zoom,pzoom)+{zoom_step:.8f},1.05)':"
+        f"x='iw/2-(iw/zoom/2)':"
+        f"y='ih/2-(ih/zoom/2)':"
+        f"d=1:"
+        f"s={VIDEO_WIDTH}x{VIDEO_HEIGHT}:"
+        f"fps={FPS},"
+        f"format=yuv420p"
+    )
+
+    command = [
+        ffmpeg_exe,
+        "-y",
+        "-loop",
+        "1",
+        "-framerate",
+        str(FPS),
+        "-i",
+        str(frame_path),
+    ]
+
+    has_audio = (
+        audio_path is not None
+        and audio_path.exists()
+    )
+
+    if has_audio:
+        command.extend([
+            "-i",
+            str(audio_path),
+        ])
+
+    command.extend([
+        "-vf",
+        vf,
+        "-t",
+        str(duration),
+        "-r",
+        str(FPS),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-tune",
+        "stillimage",
+        "-pix_fmt",
+        "yuv420p",
+    ])
+
+    if has_audio:
+        command.extend([
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "96k",
+        ])
+    else:
+        command.append("-an")
+
+    command.extend([
+        "-movflags",
+        "+faststart",
+        str(output_path),
+    ])
 
     try:
-        video_clip = (
-            ImageClip(str(frame_path))
-            .set_duration(duration)
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
         )
 
-        # -------------------------------------------------
-        # NARRATION
-        # -------------------------------------------------
-        if (
-            audio_path is not None
-            and audio_path.exists()
-        ):
-            audio_clip = AudioFileClip(
-                str(audio_path)
+        if result.returncode != 0:
+            raise RuntimeError(
+                "FFmpeg video render failed: "
+                + result.stderr[-1200:]
             )
-
-            if audio_clip.duration > duration:
-                prepared_audio_clip = audio_clip.subclip(
-                    0,
-                    duration,
-                )
-            else:
-                prepared_audio_clip = audio_clip
-
-            video_clip = video_clip.set_audio(
-                prepared_audio_clip
-            )
-
-        # -------------------------------------------------
-        # FAST MP4 ENCODING
-        # -------------------------------------------------
-        video_clip.write_videofile(
-            str(output_path),
-            fps=FPS,
-            codec="libx264",
-            audio=(
-                audio_path is not None
-                and audio_path.exists()
-            ),
-            audio_codec="aac",
-            preset="ultrafast",
-            ffmpeg_params=[
-                "-pix_fmt",
-                "yuv420p",
-                "-movflags",
-                "+faststart",
-                "-tune",
-                "stillimage",
-            ],
-            threads=1,
-            verbose=False,
-            logger=None,
-        )
 
     finally:
-        # Close only unique clip objects. prepared_audio_clip may be the
-        # same object as audio_clip when narration is shorter than video.
-        closed_ids = set()
-
-        for clip in [
-            prepared_audio_clip,
-            audio_clip,
-            video_clip,
-        ]:
-            if clip is None:
-                continue
-
-            clip_id = id(clip)
-            if clip_id in closed_ids:
-                continue
-
-            try:
-                clip.close()
-            except Exception:
-                pass
-
-            closed_ids.add(clip_id)
-
         cleanup_file(frame_path)
         cleanup_file(audio_path)
-
         gc.collect()
 
     if not output_path.exists():
