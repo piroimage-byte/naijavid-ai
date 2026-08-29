@@ -82,6 +82,25 @@ MAX_DURATION_SECONDS = 8
 
 JPEG_QUALITY = 88
 
+ASPECT_RATIOS = {
+    "16:9": (1280, 720),
+    "9:16": (720, 1280),
+    "1:1": (720, 720),
+}
+
+
+def get_video_dimensions(
+    aspect_ratio: str,
+) -> tuple[int, int]:
+    cleaned = (aspect_ratio or "16:9").strip()
+
+    if cleaned not in ASPECT_RATIOS:
+        raise ValueError(
+            "Unsupported aspect ratio. Use 16:9, 9:16, or 1:1."
+        )
+
+    return ASPECT_RATIOS[cleaned]
+
 
 # =========================================================
 # NIGERIAN LANGUAGE FOUNDATION
@@ -903,6 +922,8 @@ def generate_visual(
 
 def fit_image_to_canvas(
     source: Image.Image,
+    video_width: int = video_width,
+    video_height: int = video_height,
 ) -> Image.Image:
 
     source = (
@@ -921,8 +942,8 @@ def fit_image_to_canvas(
     )
 
     target_ratio = (
-        VIDEO_WIDTH
-        / VIDEO_HEIGHT
+        video_width
+        / video_height
     )
 
     if (
@@ -931,7 +952,7 @@ def fit_image_to_canvas(
     ):
 
         new_height = (
-            VIDEO_HEIGHT
+            video_height
         )
 
         new_width = int(
@@ -942,7 +963,7 @@ def fit_image_to_canvas(
     else:
 
         new_width = (
-            VIDEO_WIDTH
+            video_width
         )
 
         new_height = int(
@@ -961,7 +982,7 @@ def fit_image_to_canvas(
     left = max(
         (
             new_width
-            - VIDEO_WIDTH
+            - video_width
         )
         // 2,
         0,
@@ -970,7 +991,7 @@ def fit_image_to_canvas(
     top = max(
         (
             new_height
-            - VIDEO_HEIGHT
+            - video_height
         )
         // 2,
         0,
@@ -981,9 +1002,9 @@ def fit_image_to_canvas(
             left,
             top,
             left
-            + VIDEO_WIDTH,
+            + video_width,
             top
-            + VIDEO_HEIGHT,
+            + video_height,
         )
     )
 
@@ -995,6 +1016,8 @@ def fit_image_to_canvas(
 def apply_watermark(
     image: Image.Image,
     watermark: str,
+    video_width: int = video_width,
+    video_height: int = video_height,
 ) -> Image.Image:
 
     text = (
@@ -1030,13 +1053,13 @@ def apply_watermark(
     )
 
     x = (
-        VIDEO_WIDTH
+        video_width
         - text_width
         - 32
     )
 
     y = (
-        VIDEO_HEIGHT
+        video_height
         - text_height
         - 28
     )
@@ -1174,6 +1197,8 @@ def apply_language_badge(
 def apply_caption(
     image: Image.Image,
     prompt: str,
+    video_width: int = video_width,
+    video_height: int = video_height,
 ) -> Image.Image:
 
     cleaned = (
@@ -1196,7 +1221,7 @@ def apply_caption(
         draw,
         cleaned,
         font,
-        VIDEO_WIDTH - 80,
+        video_width - 80,
     )[:2]
 
     if not lines:
@@ -1214,7 +1239,7 @@ def apply_caption(
     )
 
     panel_top = (
-        VIDEO_HEIGHT
+        video_height
         - panel_height
     )
 
@@ -1222,8 +1247,8 @@ def apply_caption(
         (
             0,
             panel_top,
-            VIDEO_WIDTH,
-            VIDEO_HEIGHT,
+            video_width,
+            video_height,
         ),
         fill=(
             0,
@@ -1252,7 +1277,7 @@ def apply_caption(
         )
 
         x = (
-            VIDEO_WIDTH
+            video_width
             - width
         ) // 2
 
@@ -1617,6 +1642,8 @@ def save_cinematic_video(
     frame_path: Path,
     duration: int,
     audio_path: Path | None = None,
+    video_width: int = VIDEO_WIDTH,
+    video_height: int = VIDEO_HEIGHT,
 ) -> str:
     """
     Fast renderer with lightweight cinematic motion.
@@ -1643,7 +1670,7 @@ def save_cinematic_video(
         f"x='iw/2-(iw/zoom/2)+sin(on/18)*8':"
         f"y='ih/2-(ih/zoom/2)+cos(on/24)*5':"
         f"d=1:"
-        f"s={VIDEO_WIDTH}x{VIDEO_HEIGHT}:"
+        f"s={video_width}x{video_height}:"
         f"fps={FPS},"
         f"format=yuv420p"
     )
@@ -1744,12 +1771,17 @@ def generate_text_video(
     language: str,
     duration: int,
     watermark: str,
+    aspect_ratio: str = "16:9",
 ) -> str:
 
     language = (
         normalize_language(
             language
         )
+    )
+
+    video_width, video_height = get_video_dimensions(
+        aspect_ratio
     )
 
     visual_path = None
@@ -1780,7 +1812,9 @@ def generate_text_video(
 
             canvas = (
                 fit_image_to_canvas(
-                    source
+                    source,
+                    video_width,
+                    video_height,
                 )
             )
 
@@ -1803,6 +1837,8 @@ def generate_text_video(
             apply_watermark(
                 canvas,
                 watermark,
+                video_width,
+                video_height,
             )
         )
 
@@ -1819,6 +1855,8 @@ def generate_text_video(
                 apply_caption(
                     canvas,
                     prompt,
+                    video_width,
+                    video_height,
                 )
             )
 
@@ -1862,6 +1900,8 @@ def generate_text_video(
         frame_path=frame_path,
         duration=duration,
         audio_path=audio_path,
+        video_width=video_width,
+        video_height=video_height,
     )
 
 
@@ -1875,9 +1915,14 @@ def generate_image_video(
     language: str,
     duration: int,
     watermark: str,
+    aspect_ratio: str = "16:9",
 ) -> str:
 
     language = normalize_language(language)
+
+    video_width, video_height = get_video_dimensions(
+        aspect_ratio
+    )
 
     cleaned_prompt = (prompt or "").strip()
 
@@ -1890,7 +1935,7 @@ def generate_image_video(
         # LOAD USER IMAGE
         # -------------------------------------------------
         with Image.open(image_path) as source:
-            canvas = fit_image_to_canvas(source)
+            canvas = fit_image_to_canvas(source, video_width, video_height)
 
         # -------------------------------------------------
         # LANGUAGE INDICATOR
@@ -1907,6 +1952,8 @@ def generate_image_video(
             canvas = apply_caption(
                 canvas,
                 cleaned_prompt,
+                video_width,
+                video_height,
             )
 
         # -------------------------------------------------
@@ -1915,6 +1962,8 @@ def generate_image_video(
         canvas = apply_watermark(
             canvas,
             watermark,
+            video_width,
+            video_height,
         )
 
         # -------------------------------------------------
@@ -1979,4 +2028,6 @@ def generate_image_video(
         frame_path=frame_path,
         duration=duration,
         audio_path=audio_path,
+        video_width=video_width,
+        video_height=video_height,
     )

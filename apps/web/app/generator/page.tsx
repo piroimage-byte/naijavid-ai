@@ -30,6 +30,17 @@ type GenerationAccess = {
 };
 
 type Mode = "text" | "image";
+type AspectRatio = "16:9" | "9:16" | "1:1";
+
+const ASPECT_RATIOS: Array<{
+  value: AspectRatio;
+  label: string;
+  description: string;
+}> = [
+  { value: "16:9", label: "16:9 Landscape", description: "YouTube, websites and presentations" },
+  { value: "9:16", label: "9:16 Portrait", description: "TikTok, Reels, Shorts and WhatsApp Status" },
+  { value: "1:1", label: "1:1 Square", description: "Instagram and Facebook posts" },
+];
 
 type VideoStyle =
   | "cinematic"
@@ -140,6 +151,8 @@ export default function GeneratorPage() {
   const [watermark, setWatermark] = useState("naijavid.ai");
   const [videoStyle, setVideoStyle] =
     useState<VideoStyle>("cinematic");
+  const [aspectRatio, setAspectRatio] =
+    useState<AspectRatio>("16:9");
 
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -399,6 +412,7 @@ export default function GeneratorPage() {
             duration,
             videoUrl: generatedVideoUrl,
             watermark,
+            aspectRatio,
           }),
         }
       );
@@ -447,6 +461,7 @@ export default function GeneratorPage() {
           language,
           duration,
           watermark,
+          aspect_ratio: aspectRatio,
         }),
       }
     );
@@ -516,6 +531,11 @@ export default function GeneratorPage() {
     formData.append(
       "watermark",
       watermark
+    );
+
+    formData.append(
+      "aspect_ratio",
+      aspectRatio
     );
 
     const response = await fetch(
@@ -985,6 +1005,46 @@ export default function GeneratorPage() {
             <p className="mt-3 text-sm text-white/45">
               NaijaVid automatically enhances your prompt using the selected visual style. Your original prompt is still kept in Video History.
             </p>
+          </div>
+
+          {/* ASPECT RATIO */}
+
+          <div className="mb-8">
+            <label className="block text-2xl font-bold mb-4">
+              Aspect Ratio
+            </label>
+
+            <div className="grid sm:grid-cols-3 gap-3">
+              {ASPECT_RATIOS.map((option) => {
+                const selected = aspectRatio === option.value;
+
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setAspectRatio(option.value)}
+                    className={`rounded-2xl border p-4 text-left transition ${
+                      selected
+                        ? "border-white bg-white text-black"
+                        : "border-white/15 bg-black/30 text-white hover:bg-white/10"
+                    }`}
+                  >
+                    <div className="font-bold">
+                      {option.label}
+                    </div>
+                    <div
+                      className={`mt-2 text-sm ${
+                        selected
+                          ? "text-black/70"
+                          : "text-white/55"
+                      }`}
+                    >
+                      {option.description}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* SETTINGS */}
