@@ -1098,85 +1098,109 @@ def apply_watermark(
     watermark: str,
     video_width: int = VIDEO_WIDTH,
     video_height: int = VIDEO_HEIGHT,
+    show_watermark: bool = True,
+    watermark_position: str = "bottom_right",
+    watermark_opacity: int = 70,
 ) -> Image.Image:
 
-    text = (
-        watermark or ""
-    ).strip()
-
-    if not text:
+    if not show_watermark:
         return image
+
+    cleaned = (watermark or "").strip()
+
+    if not cleaned:
+        return image
+
+    watermark_position = (
+        watermark_position or "bottom_right"
+    ).strip().lower()
+
+    if watermark_position not in {
+        "top_left",
+        "top_right",
+        "bottom_left",
+        "bottom_right",
+    }:
+        watermark_position = "bottom_right"
+
+    watermark_opacity = max(
+        20,
+        min(
+            100,
+            int(watermark_opacity),
+        ),
+    )
 
     draw = ImageDraw.Draw(
         image,
         "RGBA",
     )
 
-    font = get_font(
-        18
+    font_size = max(
+        18,
+        min(
+            32,
+            int(video_width * 0.026),
+        ),
     )
+
+    font = get_font(font_size)
 
     bbox = draw.textbbox(
         (0, 0),
-        text,
+        cleaned,
         font=font,
     )
 
-    text_width = (
-        bbox[2]
-        - bbox[0]
+    text_width = bbox[2] - bbox[0]
+    text_height = max(
+        font_size,
+        bbox[3] - bbox[1],
     )
 
-    text_height = (
-        bbox[3]
-        - bbox[1]
+    margin_x = max(
+        16,
+        int(video_width * 0.025),
     )
 
-    x = (
-        video_width
-        - text_width
-        - 32
+    margin_y = max(
+        16,
+        int(video_height * 0.025),
     )
 
-    y = (
-        video_height
-        - text_height
-        - 28
+    if watermark_position.endswith("left"):
+        x = margin_x
+    else:
+        x = max(
+            margin_x,
+            video_width - text_width - margin_x,
+        )
+
+    if watermark_position.startswith("top"):
+        y = margin_y
+    else:
+        y = max(
+            margin_y,
+            video_height - text_height - margin_y,
+        )
+
+    alpha = int(
+        255 * (watermark_opacity / 100)
     )
 
-    draw.rounded_rectangle(
-        (
-            x - 10,
-            y - 7,
-            x
-            + text_width
-            + 10,
-            y
-            + text_height
-            + 7,
-        ),
-        radius=8,
-        fill=(
-            0,
-            0,
-            0,
-            120,
-        ),
+    # Soft shadow for readability.
+    draw.text(
+        (x + 2, y + 2),
+        cleaned,
+        font=font,
+        fill=(0, 0, 0, min(210, alpha)),
     )
 
     draw.text(
-        (
-            x,
-            y,
-        ),
-        text,
+        (x, y),
+        cleaned,
         font=font,
-        fill=(
-            255,
-            255,
-            255,
-            220,
-        ),
+        fill=(255, 255, 255, alpha),
     )
 
     return image
@@ -1913,6 +1937,9 @@ def generate_text_video(
     caption_style: str = "clean",
     caption_position: str = "bottom",
     show_caption: bool = True,
+    show_watermark: bool = True,
+    watermark_position: str = "bottom_right",
+    watermark_opacity: int = 70,
 ) -> str:
 
     language = (
@@ -1984,6 +2011,9 @@ def generate_text_video(
                 watermark,
                 video_width,
                 video_height,
+            show_watermark,
+            watermark_position,
+            watermark_opacity,
             )
         )
 
@@ -2064,6 +2094,9 @@ def generate_image_video(
     caption_style: str = "clean",
     caption_position: str = "bottom",
     show_caption: bool = True,
+    show_watermark: bool = True,
+    watermark_position: str = "bottom_right",
+    watermark_opacity: int = 70,
 ) -> str:
 
     language = normalize_language(language)
@@ -2119,6 +2152,9 @@ def generate_image_video(
             watermark,
             video_width,
             video_height,
+        show_watermark,
+        watermark_position,
+        watermark_opacity,
         )
 
         # -------------------------------------------------

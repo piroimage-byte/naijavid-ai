@@ -213,6 +213,19 @@ class GenerateRequest(BaseModel):
 
     show_caption: bool = True
 
+    show_watermark: bool = True
+
+    watermark_position: str = Field(
+        default="bottom_right",
+        pattern=r"^(top_left|top_right|bottom_left|bottom_right)$",
+    )
+
+    watermark_opacity: int = Field(
+        default=70,
+        ge=20,
+        le=100,
+    )
+
     @field_validator(
         "prompt",
         "language",
@@ -355,6 +368,9 @@ async def generate_video(
             caption_style=data.caption_style,
             caption_position=data.caption_position,
             show_caption=data.show_caption,
+            show_watermark=data.show_watermark,
+            watermark_position=data.watermark_position,
+            watermark_opacity=data.watermark_opacity,
         )
 
         local_video_path = (
@@ -413,6 +429,9 @@ async def generate_from_image(
     caption_style: str = Form("clean"),
     caption_position: str = Form("bottom"),
     show_caption: bool = Form(True),
+    show_watermark: bool = Form(True),
+    watermark_position: str = Form("bottom_right"),
+    watermark_opacity: int = Form(70),
 ):
     upload_path = None
     local_video_path = None
@@ -484,6 +503,26 @@ async def generate_from_image(
                 detail="Caption position must be top, center, or bottom.",
             )
 
+        if watermark_position not in {
+            "top_left",
+            "top_right",
+            "bottom_left",
+            "bottom_right",
+        }:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Watermark position must be top_left, top_right, "
+                    "bottom_left, or bottom_right."
+                ),
+            )
+
+        if watermark_opacity < 20 or watermark_opacity > 100:
+            raise HTTPException(
+                status_code=422,
+                detail="Watermark opacity must be between 20 and 100.",
+            )
+
         ext = Path(
             image.filename or ""
         ).suffix.lower()
@@ -518,6 +557,9 @@ async def generate_from_image(
             caption_style=caption_style,
             caption_position=caption_position,
             show_caption=show_caption,
+            show_watermark=show_watermark,
+            watermark_position=watermark_position,
+            watermark_opacity=watermark_opacity,
         )
 
         local_video_path = (

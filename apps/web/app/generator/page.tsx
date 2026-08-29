@@ -40,6 +40,12 @@ type CameraMotion =
 
 type CaptionStyle = "clean" | "bold" | "subtitle";
 type CaptionPosition = "top" | "center" | "bottom";
+type WatermarkPosition =
+  | "top_left"
+  | "top_right"
+  | "bottom_left"
+  | "bottom_right";
+
 
 const CAPTION_STYLES: Array<{
   value: CaptionStyle;
@@ -206,6 +212,12 @@ export default function GeneratorPage() {
     useState<CaptionStyle>("clean");
   const [captionPosition, setCaptionPosition] =
     useState<CaptionPosition>("bottom");
+  const [showWatermark, setShowWatermark] =
+    useState(true);
+  const [watermarkPosition, setWatermarkPosition] =
+    useState<WatermarkPosition>("bottom_right");
+  const [watermarkOpacity, setWatermarkOpacity] =
+    useState(70);
 
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -470,6 +482,9 @@ export default function GeneratorPage() {
             showCaption,
             captionStyle,
             captionPosition,
+            showWatermark,
+            watermarkPosition,
+            watermarkOpacity,
           }),
         }
       );
@@ -523,6 +538,9 @@ export default function GeneratorPage() {
           caption_style: captionStyle,
           caption_position: captionPosition,
           show_caption: showCaption,
+          show_watermark: showWatermark,
+          watermark_position: watermarkPosition,
+          watermark_opacity: watermarkOpacity,
         }),
       }
     );
@@ -617,6 +635,21 @@ export default function GeneratorPage() {
     formData.append(
       "show_caption",
       String(showCaption)
+    );
+
+    formData.append(
+      "show_watermark",
+      String(showWatermark)
+    );
+
+    formData.append(
+      "watermark_position",
+      watermarkPosition
+    );
+
+    formData.append(
+      "watermark_opacity",
+      String(watermarkOpacity)
     );
 
     const response = await fetch(
@@ -1265,6 +1298,93 @@ export default function GeneratorPage() {
                         </button>
                       ))}
                     </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* WATERMARK CONTROLS */}
+
+          <div className="mb-8 rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div className="flex flex-col gap-5">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-2xl font-bold">
+                    Watermark
+                  </h3>
+                  <p className="mt-1 text-sm text-white/50">
+                    Control whether your brand mark appears and where it is placed.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowWatermark(!showWatermark)
+                  }
+                  className={`rounded-full px-5 py-2 font-semibold ${
+                    showWatermark
+                      ? "bg-white text-black"
+                      : "border border-white/20 text-white"
+                  }`}
+                >
+                  {showWatermark ? "On" : "Off"}
+                </button>
+              </div>
+
+              {showWatermark && (
+                <>
+                  <div>
+                    <label className="block text-lg font-bold mb-3">
+                      Watermark Position
+                    </label>
+
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {(
+                        [
+                          ["top_left", "Top Left"],
+                          ["top_right", "Top Right"],
+                          ["bottom_left", "Bottom Left"],
+                          ["bottom_right", "Bottom Right"],
+                        ] as Array<[WatermarkPosition, string]>
+                      ).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() =>
+                            setWatermarkPosition(value)
+                          }
+                          className={`rounded-xl px-4 py-3 font-semibold ${
+                            watermarkPosition === value
+                              ? "bg-white text-black"
+                              : "border border-white/20 text-white"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-lg font-bold mb-3">
+                      Watermark Opacity: {watermarkOpacity}%
+                    </label>
+
+                    <input
+                      type="range"
+                      min={20}
+                      max={100}
+                      step={10}
+                      value={watermarkOpacity}
+                      onChange={(event) =>
+                        setWatermarkOpacity(
+                          Number(event.target.value)
+                        )
+                      }
+                      className="w-full"
+                    />
                   </div>
                 </>
               )}
