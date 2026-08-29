@@ -82,6 +82,51 @@ MAX_DURATION_SECONDS = 8
 
 JPEG_QUALITY = 88
 
+MUSIC_DIR = BASE_DIR / "music"
+MUSIC_DIR.mkdir(parents=True, exist_ok=True)
+
+BACKGROUND_MUSIC_STYLES = {
+    "none",
+    "worship",
+    "cinematic",
+    "corporate",
+    "documentary",
+    "emotional",
+    "upbeat",
+}
+
+BACKGROUND_MUSIC_FILES = {
+    "worship": "worship.mp3",
+    "cinematic": "cinematic.mp3",
+    "corporate": "corporate.mp3",
+    "documentary": "documentary.mp3",
+    "emotional": "emotional.mp3",
+    "upbeat": "upbeat.mp3",
+}
+
+
+def normalize_background_music(style: str) -> str:
+    cleaned = (style or "none").strip().lower()
+    if cleaned not in BACKGROUND_MUSIC_STYLES:
+        raise ValueError(
+            "Unsupported background music. Use none, worship, cinematic, "
+            "corporate, documentary, emotional, or upbeat."
+        )
+    return cleaned
+
+
+def get_background_music_path(style: str) -> Path | None:
+    cleaned = normalize_background_music(style)
+    if cleaned == "none":
+        return None
+
+    path = MUSIC_DIR / BACKGROUND_MUSIC_FILES[cleaned]
+    if not path.exists():
+        raise RuntimeError(
+            f"Background music track '{cleaned}' is not installed on the server."
+        )
+    return path
+
 ASPECT_RATIOS = {
     "16:9": (1280, 720),
     "9:16": (720, 1280),
@@ -1812,7 +1857,14 @@ def save_cinematic_video(
     video_width: int = VIDEO_WIDTH,
     video_height: int = VIDEO_HEIGHT,
     motion_style: str = "cinematic",
+    background_music: str = "none",
+    music_volume: int = 15,
 ) -> str:
+
+    background_music = normalize_background_music(background_music)
+    music_volume = max(0, min(30, int(music_volume)))
+    music_path = get_background_music_path(background_music)
+
     """
     Fast renderer with lightweight cinematic motion.
 
@@ -1940,6 +1992,8 @@ def generate_text_video(
     show_watermark: bool = True,
     watermark_position: str = "bottom_right",
     watermark_opacity: int = 70,
+    background_music: str = "none",
+    music_volume: int = 15,
 ) -> str:
 
     language = (
@@ -2076,6 +2130,8 @@ def generate_text_video(
         video_width=video_width,
         video_height=video_height,
         motion_style=motion_style,
+            background_music=background_music,
+            music_volume=music_volume,
     )
 
 
@@ -2097,6 +2153,8 @@ def generate_image_video(
     show_watermark: bool = True,
     watermark_position: str = "bottom_right",
     watermark_opacity: int = 70,
+    background_music: str = "none",
+    music_volume: int = 15,
 ) -> str:
 
     language = normalize_language(language)
@@ -2222,4 +2280,6 @@ def generate_image_video(
         video_width=video_width,
         video_height=video_height,
         motion_style=motion_style,
+            background_music=background_music,
+            music_volume=music_volume,
     )

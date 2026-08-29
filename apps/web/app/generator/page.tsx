@@ -40,12 +40,6 @@ type CameraMotion =
 
 type CaptionStyle = "clean" | "bold" | "subtitle";
 type CaptionPosition = "top" | "center" | "bottom";
-type WatermarkPosition =
-  | "top_left"
-  | "top_right"
-  | "bottom_left"
-  | "bottom_right";
-
 
 const CAPTION_STYLES: Array<{
   value: CaptionStyle;
@@ -182,6 +176,29 @@ function buildStyledPrompt(
 Visual style instruction: ${styleInstructions[style]}`;
 }
 
+type BackgroundMusic =
+  | "none"
+  | "worship"
+  | "cinematic"
+  | "corporate"
+  | "documentary"
+  | "emotional"
+  | "upbeat";
+
+const BACKGROUND_MUSIC_OPTIONS: Array<{
+  value: BackgroundMusic;
+  label: string;
+  description: string;
+}> = [
+  { value: "none", label: "None", description: "Narration only" },
+  { value: "worship", label: "Worship / Inspirational", description: "Warm ministry and inspirational mood" },
+  { value: "cinematic", label: "Cinematic", description: "Film-like atmospheric underscore" },
+  { value: "corporate", label: "Corporate", description: "Clean professional business mood" },
+  { value: "documentary", label: "Documentary", description: "Subtle factual background atmosphere" },
+  { value: "emotional", label: "Emotional", description: "Gentle reflective underscore" },
+  { value: "upbeat", label: "Upbeat / Social", description: "Energetic short-form social feel" },
+];
+
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
@@ -212,12 +229,10 @@ export default function GeneratorPage() {
     useState<CaptionStyle>("clean");
   const [captionPosition, setCaptionPosition] =
     useState<CaptionPosition>("bottom");
-  const [showWatermark, setShowWatermark] =
-    useState(true);
-  const [watermarkPosition, setWatermarkPosition] =
-    useState<WatermarkPosition>("bottom_right");
-  const [watermarkOpacity, setWatermarkOpacity] =
-    useState(70);
+  const [backgroundMusic, setBackgroundMusic] =
+    useState<BackgroundMusic>("none");
+  const [musicVolume, setMusicVolume] =
+    useState(15);
 
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -482,9 +497,8 @@ export default function GeneratorPage() {
             showCaption,
             captionStyle,
             captionPosition,
-            showWatermark,
-            watermarkPosition,
-            watermarkOpacity,
+            backgroundMusic,
+            musicVolume,
           }),
         }
       );
@@ -538,9 +552,8 @@ export default function GeneratorPage() {
           caption_style: captionStyle,
           caption_position: captionPosition,
           show_caption: showCaption,
-          show_watermark: showWatermark,
-          watermark_position: watermarkPosition,
-          watermark_opacity: watermarkOpacity,
+          background_music: backgroundMusic,
+          music_volume: musicVolume,
         }),
       }
     );
@@ -638,18 +651,13 @@ export default function GeneratorPage() {
     );
 
     formData.append(
-      "show_watermark",
-      String(showWatermark)
+      "background_music",
+      backgroundMusic
     );
 
     formData.append(
-      "watermark_position",
-      watermarkPosition
-    );
-
-    formData.append(
-      "watermark_opacity",
-      String(watermarkOpacity)
+      "music_volume",
+      String(musicVolume)
     );
 
     const response = await fetch(
@@ -1304,91 +1312,72 @@ export default function GeneratorPage() {
             </div>
           </div>
 
-          {/* WATERMARK CONTROLS */}
+          {/* BACKGROUND MUSIC */}
 
           <div className="mb-8 rounded-2xl border border-white/10 bg-black/20 p-5">
-            <div className="flex flex-col gap-5">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <h3 className="text-2xl font-bold">
-                    Watermark
-                  </h3>
-                  <p className="mt-1 text-sm text-white/50">
-                    Control whether your brand mark appears and where it is placed.
-                  </p>
-                </div>
+            <h3 className="text-2xl font-bold">
+              Background Music
+            </h3>
+            <p className="mt-1 text-sm text-white/50">
+              Add a low-volume music bed underneath the narration.
+            </p>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowWatermark(!showWatermark)
-                  }
-                  className={`rounded-full px-5 py-2 font-semibold ${
-                    showWatermark
-                      ? "bg-white text-black"
-                      : "border border-white/20 text-white"
-                  }`}
-                >
-                  {showWatermark ? "On" : "Off"}
-                </button>
-              </div>
+            <div className="mt-5 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {BACKGROUND_MUSIC_OPTIONS.map((option) => {
+                const selected =
+                  backgroundMusic === option.value;
 
-              {showWatermark && (
-                <>
-                  <div>
-                    <label className="block text-lg font-bold mb-3">
-                      Watermark Position
-                    </label>
-
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                      {(
-                        [
-                          ["top_left", "Top Left"],
-                          ["top_right", "Top Right"],
-                          ["bottom_left", "Bottom Left"],
-                          ["bottom_right", "Bottom Right"],
-                        ] as Array<[WatermarkPosition, string]>
-                      ).map(([value, label]) => (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() =>
-                            setWatermarkPosition(value)
-                          }
-                          className={`rounded-xl px-4 py-3 font-semibold ${
-                            watermarkPosition === value
-                              ? "bg-white text-black"
-                              : "border border-white/20 text-white"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() =>
+                      setBackgroundMusic(option.value)
+                    }
+                    className={`rounded-xl border p-4 text-left ${
+                      selected
+                        ? "border-white bg-white text-black"
+                        : "border-white/15 text-white hover:bg-white/10"
+                    }`}
+                  >
+                    <div className="font-bold">
+                      {option.label}
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-lg font-bold mb-3">
-                      Watermark Opacity: {watermarkOpacity}%
-                    </label>
-
-                    <input
-                      type="range"
-                      min={20}
-                      max={100}
-                      step={10}
-                      value={watermarkOpacity}
-                      onChange={(event) =>
-                        setWatermarkOpacity(
-                          Number(event.target.value)
-                        )
-                      }
-                      className="w-full"
-                    />
-                  </div>
-                </>
-              )}
+                    <div
+                      className={`mt-1 text-sm ${
+                        selected
+                          ? "text-black/65"
+                          : "text-white/50"
+                      }`}
+                    >
+                      {option.description}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
+
+            {backgroundMusic !== "none" && (
+              <div className="mt-5">
+                <label className="block text-lg font-bold mb-3">
+                  Music Volume: {musicVolume}%
+                </label>
+                <input
+                  type="range"
+                  min={5}
+                  max={30}
+                  step={5}
+                  value={musicVolume}
+                  onChange={(event) =>
+                    setMusicVolume(Number(event.target.value))
+                  }
+                  className="w-full"
+                />
+                <p className="mt-2 text-sm text-white/50">
+                  Narration stays at full volume. Music remains underneath it.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* SETTINGS */}

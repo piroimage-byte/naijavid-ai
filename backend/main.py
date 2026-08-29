@@ -226,6 +226,17 @@ class GenerateRequest(BaseModel):
         le=100,
     )
 
+    background_music: str = Field(
+        default="none",
+        pattern=r"^(none|worship|cinematic|corporate|documentary|emotional|upbeat)$",
+    )
+
+    music_volume: int = Field(
+        default=15,
+        ge=0,
+        le=30,
+    )
+
     @field_validator(
         "prompt",
         "language",
@@ -371,6 +382,8 @@ async def generate_video(
             show_watermark=data.show_watermark,
             watermark_position=data.watermark_position,
             watermark_opacity=data.watermark_opacity,
+            background_music=data.background_music,
+            music_volume=data.music_volume,
         )
 
         local_video_path = (
@@ -432,6 +445,8 @@ async def generate_from_image(
     show_watermark: bool = Form(True),
     watermark_position: str = Form("bottom_right"),
     watermark_opacity: int = Form(70),
+    background_music: str = Form("none"),
+    music_volume: int = Form(15),
 ):
     upload_path = None
     local_video_path = None
@@ -523,6 +538,26 @@ async def generate_from_image(
                 detail="Watermark opacity must be between 20 and 100.",
             )
 
+        if background_music not in {
+            "none",
+            "worship",
+            "cinematic",
+            "corporate",
+            "documentary",
+            "emotional",
+            "upbeat",
+        }:
+            raise HTTPException(
+                status_code=422,
+                detail="Unsupported background music selection.",
+            )
+
+        if music_volume < 0 or music_volume > 30:
+            raise HTTPException(
+                status_code=422,
+                detail="Music volume must be between 0 and 30.",
+            )
+
         ext = Path(
             image.filename or ""
         ).suffix.lower()
@@ -560,6 +595,8 @@ async def generate_from_image(
             show_watermark=show_watermark,
             watermark_position=watermark_position,
             watermark_opacity=watermark_opacity,
+            background_music=background_music,
+            music_volume=music_volume,
         )
 
         local_video_path = (
