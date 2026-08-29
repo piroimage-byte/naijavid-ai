@@ -857,7 +857,7 @@ def generate_fallback_visual(
         output_path,
         format="JPEG",
         quality=92,
-        optimize=True,
+        optimize=False,
     )
 
     image.close()
@@ -1296,7 +1296,7 @@ def save_frame_as_image(
         frame_path,
         format="JPEG",
         quality=JPEG_QUALITY,
-        optimize=True,
+        optimize=False,
     )
 
     return frame_path
@@ -1616,130 +1616,58 @@ def save_cinematic_video(
     duration: int,
     audio_path: Path | None = None,
 ) -> str:
+    """
+    Fast NaijaVid renderer.
 
-    duration = (
-        sanitize_duration(
-            duration
-        )
-    )
+    The previous implementation resized the image on every video frame to
+    create a gradual zoom. That is attractive but CPU-expensive on Render.
+    This version renders one prepared frame for the full duration and keeps
+    narration, H.264, AAC, fast-start playback and the same public API.
+    """
 
-    filename = (
-        new_filename(
-            ".mp4"
-        )
-    )
+    duration = sanitize_duration(duration)
 
-    output_path = (
-        GENERATED_DIR
-        / filename
-    )
+    filename = new_filename(".mp4")
+    output_path = GENERATED_DIR / filename
 
-    base_clip = None
-    moving_clip = None
-    final_clip = None
+    video_clip = None
     audio_clip = None
     prepared_audio_clip = None
 
     try:
-
-        base_clip = (
-            ImageClip(
-                str(
-                    frame_path
-                )
-            )
-            .set_duration(
-                duration
-            )
-        )
-
-        # Subtle cinematic zoom
-        def zoom_factor(
-            t
-        ):
-
-            progress = (
-                t
-                / max(
-                    duration,
-                    1,
-                )
-            )
-
-            return (
-                1.0
-                + (
-                    0.055
-                    * progress
-                )
-            )
-
-        moving_clip = (
-            base_clip
-            .resize(
-                zoom_factor
-            )
-            .set_position(
-                "center"
-            )
-        )
-
-        final_clip = (
-            CompositeVideoClip(
-                [
-                    moving_clip
-                ],
-                size=(
-                    VIDEO_WIDTH,
-                    VIDEO_HEIGHT,
-                ),
-            )
-            .set_duration(
-                duration
-            )
+        video_clip = (
+            ImageClip(str(frame_path))
+            .set_duration(duration)
         )
 
         # -------------------------------------------------
         # NARRATION
         # -------------------------------------------------
-
         if (
             audio_path is not None
             and audio_path.exists()
         ):
-
             audio_clip = AudioFileClip(
-                str(
-                    audio_path
-                )
+                str(audio_path)
             )
 
-            # Keep the MP4 at the duration chosen by the user.
-            # If narration is longer, trim it.
-            # If narration is shorter, the rest of the video is silent.
             if audio_clip.duration > duration:
-                prepared_audio_clip = (
-                    audio_clip.subclip(
-                        0,
-                        duration,
-                    )
+                prepared_audio_clip = audio_clip.subclip(
+                    0,
+                    duration,
                 )
             else:
-                prepared_audio_clip = (
-                    audio_clip
-                )
+                prepared_audio_clip = audio_clip
 
-            final_clip = (
-                final_clip
-                .set_audio(
-                    prepared_audio_clip
-                )
+            video_clip = video_clip.set_audio(
+                prepared_audio_clip
             )
 
-        final_clip.write_videofile(
-            str(
-                output_path
-            ),
+        # -------------------------------------------------
+        # FAST MP4 ENCODING
+        # -------------------------------------------------
+        video_clip.write_videofile(
+            str(output_path),
             fps=FPS,
             codec="libx264",
             audio=(
@@ -1753,6 +1681,8 @@ def save_cinematic_video(
                 "yuv420p",
                 "-movflags",
                 "+faststart",
+                "-tune",
+                "stillimage",
             ],
             threads=1,
             verbose=False,
@@ -1760,35 +1690,35 @@ def save_cinematic_video(
         )
 
     finally:
+        # Close only unique clip objects. prepared_audio_clip may be the
+        # same object as audio_clip when narration is shorter than video.
+        closed_ids = set()
 
         for clip in [
             prepared_audio_clip,
             audio_clip,
-            final_clip,
-            moving_clip,
-            base_clip,
+            video_clip,
         ]:
+            if clip is None:
+                continue
 
-            if clip is not None:
+            clip_id = id(clip)
+            if clip_id in closed_ids:
+                continue
 
-                try:
-                    clip.close()
+            try:
+                clip.close()
+            except Exception:
+                pass
 
-                except Exception:
-                    pass
+            closed_ids.add(clip_id)
 
-        cleanup_file(
-            frame_path
-        )
-
-        cleanup_file(
-            audio_path
-        )
+        cleanup_file(frame_path)
+        cleanup_file(audio_path)
 
         gc.collect()
 
     if not output_path.exists():
-
         raise RuntimeError(
             "Video file was not created."
         )
