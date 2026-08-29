@@ -206,6 +206,27 @@ const BACKGROUND_MUSIC_OPTIONS: Array<{
   { value: "upbeat", label: "Upbeat / Social", description: "Energetic short-form social feel" },
 ];
 
+type SceneTransition =
+  | "none"
+  | "fade"
+  | "crossfade"
+  | "slide_left"
+  | "slide_right"
+  | "zoom";
+
+const SCENE_TRANSITIONS: Array<{
+  value: SceneTransition;
+  label: string;
+  description: string;
+}> = [
+  { value: "none", label: "None", description: "Direct cut between images" },
+  { value: "fade", label: "Fade", description: "Fade briefly through black" },
+  { value: "crossfade", label: "Crossfade", description: "Smooth blend from one image to the next" },
+  { value: "slide_left", label: "Slide Left", description: "Next scene slides in from the right" },
+  { value: "slide_right", label: "Slide Right", description: "Next scene slides in from the left" },
+  { value: "zoom", label: "Zoom", description: "Zoom-style reveal between scenes" },
+];
+
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
@@ -246,6 +267,8 @@ export default function GeneratorPage() {
     useState<BackgroundMusic>("none");
   const [musicVolume, setMusicVolume] =
     useState(15);
+  const [sceneTransition, setSceneTransition] =
+    useState<SceneTransition>("crossfade");
 
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -536,6 +559,10 @@ export default function GeneratorPage() {
                 : mode === "image"
                   ? 1
                   : 0,
+            sceneTransition:
+              mode === "multi"
+                ? sceneTransition
+                : "none",
           }),
         }
       );
@@ -785,6 +812,7 @@ export default function GeneratorPage() {
     formData.append("watermark_opacity", String(watermarkOpacity));
     formData.append("background_music", backgroundMusic);
     formData.append("music_volume", String(musicVolume));
+    formData.append("scene_transition", sceneTransition);
 
     const response = await fetch(
       `${BACKEND_URL}/generate-from-images`,
@@ -1235,6 +1263,54 @@ export default function GeneratorPage() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {mode === "multi" && (
+            <div className="mb-8 rounded-2xl border border-white/10 bg-black/20 p-5">
+              <h3 className="text-2xl font-bold">
+                Scene Transition
+              </h3>
+
+              <p className="mt-1 text-sm text-white/50">
+                Choose how each uploaded image changes into the next scene.
+              </p>
+
+              <div className="mt-5 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {SCENE_TRANSITIONS.map((option) => {
+                  const selected =
+                    sceneTransition === option.value;
+
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() =>
+                        setSceneTransition(option.value)
+                      }
+                      className={`rounded-xl border p-4 text-left ${
+                        selected
+                          ? "border-white bg-white text-black"
+                          : "border-white/15 text-white hover:bg-white/10"
+                      }`}
+                    >
+                      <div className="font-bold">
+                        {option.label}
+                      </div>
+
+                      <div
+                        className={`mt-1 text-sm ${
+                          selected
+                            ? "text-black/65"
+                            : "text-white/50"
+                        }`}
+                      >
+                        {option.description}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 

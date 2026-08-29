@@ -116,6 +116,28 @@ def normalize_background_music(style: str) -> str:
     return cleaned
 
 
+SCENE_TRANSITIONS = {
+    "none": None,
+    "fade": "fadeblack",
+    "crossfade": "fade",
+    "slide_left": "slideleft",
+    "slide_right": "slideright",
+    "zoom": "zoomin",
+}
+
+
+def normalize_scene_transition(style: str) -> str:
+    cleaned = (style or "crossfade").strip().lower()
+
+    if cleaned not in SCENE_TRANSITIONS:
+        raise ValueError(
+            "Unsupported scene transition. "
+            "Use none, fade, crossfade, slide_left, slide_right, or zoom."
+        )
+
+    return cleaned
+
+
 def get_background_music_path(style: str) -> Path | None:
     cleaned = normalize_background_music(style)
     if cleaned == "none":
@@ -2037,15 +2059,18 @@ def render_silent_image_scene(
 def combine_image_scenes(
     scene_paths: list[Path],
     duration: int,
+    scene_transition: str = "crossfade",
+    transition_duration: float = 0.35,
     audio_path: Path | None = None,
     background_music: str = "none",
     music_volume: int = 15,
 ) -> str:
-    """Concatenate silent scenes and add narration/background music once."""
+    """Combine silent scenes, apply optional transitions, then add final audio."""
     if not scene_paths:
         raise RuntimeError("No image scenes were created.")
 
     duration = sanitize_duration(duration)
+    scene_transition = normalize_scene_transition(scene_transition)
     music_volume = max(0, min(30, int(music_volume)))
     background_music = normalize_background_music(background_music)
     music_path = get_background_music_path(background_music)
@@ -2056,42 +2081,121 @@ def combine_image_scenes(
     output_path = GENERATED_DIR / new_filename(".mp4")
 
     try:
-        concat_path.write_text(
-            "".join(
-                f"file '{str(path).replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39))}'\n"
-                for path in scene_paths
-            ),
-            encoding="utf-8",
-        )
-
-        concat_cmd = [
-            ffmpeg_exe,
-            "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", str(concat_path),
-            "-c", "copy",
-            "-t", str(duration),
-            str(silent_path),
-        ]
-
-        concat_result = subprocess.run(
-            concat_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-        )
-
-        if concat_result.returncode != 0:
-            raise RuntimeError(
-                "FFmpeg scene combine failed: " + concat_result.stderr[-1200:]
+        # -------------------------------------------------
+        # VIDEO: NO TRANSITION = FAST CONCAT
+        # -------------------------------------------------
+        if scene_transition == "none" or len(scene_paths) == 1:
+            concat_path.write_text(
+                "".join(
+                    f"file '{str(path).replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39))}'\n"
+                    for path in scene_paths
+                ),
+                encoding="utf-8",
             )
 
+            concat_cmd = [
+                ffmpeg_exe,
+                "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(concat_path),
+                "-c", "copy",
+                "-t", str(duration),
+                str(silent_path),
+            ]
+
+            concat_result = subprocess.run(
+                concat_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            if concat_result.returncode != 0:
+                raise RuntimeError(
+                    "FFmpeg scene combine failed: " + concat_result.stderr[-1200:]
+                )
+
+        # -------------------------------------------------
+        # VIDEO: XFADE TRANSITIONS
+        # -------------------------------------------------
+        else:
+            transition_duration = max(0.15, min(0.6, float(transition_duration)))
+            transition_name = SCENE_TRANSITIONS[scene_transition]
+
+            command = [ffmpeg_exe, "-y"]
+
+            for scene_path in scene_paths:
+                command.extend(["-i", str(scene_path)])
+
+            # Each rendered scene is the same length. Probe by calculation:
+            # generate_multi_image_video deliberately renders each scene long
+            # enough to compensate for the overlaps created by xfade.
+            scene_count = len(scene_paths)
+            scene_duration = (
+                duration + transition_duration * (scene_count - 1)
+            ) / scene_count
+
+            filter_parts: list[str] = []
+            previous_label = "[0:v]"
+
+            for index in range(1, scene_count):
+                # Offset is measured on the growing output timeline.
+                offset = (
+                    scene_duration * index
+                    - transition_duration * index
+                )
+                output_label = f"[v{index}]"
+
+                filter_parts.append(
+                    f"{previous_label}[{index}:v]"
+                    f"xfade=transition={transition_name}:"
+                    f"duration={transition_duration:.3f}:"
+                    f"offset={offset:.3f}"
+                    f"{output_label}"
+                )
+
+                previous_label = output_label
+
+            command.extend([
+                "-filter_complex",
+                ";".join(filter_parts),
+                "-map",
+                previous_label,
+                "-t",
+                str(duration),
+                "-r",
+                str(FPS),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
+                "-an",
+                str(silent_path),
+            ])
+
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            if result.returncode != 0:
+                raise RuntimeError(
+                    "FFmpeg scene transition failed: " + result.stderr[-1600:]
+                )
+
+        # -------------------------------------------------
+        # AUDIO MIX
+        # -------------------------------------------------
         has_narration = audio_path is not None and audio_path.exists()
         has_music = music_path is not None and music_path.exists()
 
-        # No audio at all.
         if not has_narration and not has_music:
             shutil.copy2(silent_path, output_path)
             return output_path.name
@@ -2197,6 +2301,7 @@ def generate_multi_image_video(
     watermark_opacity: int = 70,
     background_music: str = "none",
     music_volume: int = 15,
+    scene_transition: str = "crossfade",
 ) -> str:
     """Create one video from 2-5 uploaded images."""
     if len(image_paths) < 2 or len(image_paths) > 5:
@@ -2206,6 +2311,7 @@ def generate_multi_image_video(
     duration = sanitize_duration(duration)
     video_width, video_height = get_video_dimensions(aspect_ratio)
     motion_style = normalize_motion_style(motion_style)
+    scene_transition = normalize_scene_transition(scene_transition)
     cleaned_prompt = (prompt or "").strip()
 
     frame_paths: list[Path] = []
@@ -2213,7 +2319,10 @@ def generate_multi_image_video(
     audio_path = None
 
     try:
-        scene_duration = duration / len(image_paths)
+        transition_duration = 0.35 if scene_transition != "none" else 0.0
+        scene_duration = (
+            duration + transition_duration * (len(image_paths) - 1)
+        ) / len(image_paths)
 
         for image_path in image_paths:
             with Image.open(image_path) as source:
@@ -2285,6 +2394,8 @@ def generate_multi_image_video(
         return combine_image_scenes(
             scene_paths=scene_paths,
             duration=duration,
+            scene_transition=scene_transition,
+            transition_duration=transition_duration,
             audio_path=audio_path,
             background_music=background_music,
             music_volume=music_volume,

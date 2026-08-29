@@ -669,6 +669,7 @@ async def generate_from_images(
     watermark_opacity: int = Form(70),
     background_music: str = Form("none"),
     music_volume: int = Form(15),
+    scene_transition: str = Form("crossfade"),
 ):
     upload_paths: list[Path] = []
     local_video_path = None
@@ -708,6 +709,22 @@ async def generate_from_images(
                 ),
             )
 
+        if scene_transition not in {
+            "none",
+            "fade",
+            "crossfade",
+            "slide_left",
+            "slide_right",
+            "zoom",
+        }:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Scene transition must be none, fade, crossfade, "
+                    "slide_left, slide_right, or zoom."
+                ),
+            )
+
         for upload in images:
             ext = Path(upload.filename or "").suffix.lower()
 
@@ -741,6 +758,7 @@ async def generate_from_images(
             watermark_opacity=watermark_opacity,
             background_music=background_music,
             music_volume=music_volume,
+            scene_transition=scene_transition,
         )
 
         local_video_path = GENERATED_DIR / filename
