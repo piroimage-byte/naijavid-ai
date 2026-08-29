@@ -922,8 +922,8 @@ def generate_visual(
 
 def fit_image_to_canvas(
     source: Image.Image,
-    video_width: int = video_width,
-    video_height: int = video_height,
+    video_width: int = VIDEO_WIDTH,
+    video_height: int = VIDEO_HEIGHT,
 ) -> Image.Image:
 
     source = (
@@ -1016,8 +1016,8 @@ def fit_image_to_canvas(
 def apply_watermark(
     image: Image.Image,
     watermark: str,
-    video_width: int = video_width,
-    video_height: int = video_height,
+    video_width: int = VIDEO_WIDTH,
+    video_height: int = VIDEO_HEIGHT,
 ) -> Image.Image:
 
     text = (
@@ -1197,8 +1197,8 @@ def apply_language_badge(
 def apply_caption(
     image: Image.Image,
     prompt: str,
-    video_width: int = video_width,
-    video_height: int = video_height,
+    video_width: int = VIDEO_WIDTH,
+    video_height: int = VIDEO_HEIGHT,
 ) -> Image.Image:
 
     cleaned = (
