@@ -1696,18 +1696,20 @@ export default function GeneratorPage() {
 
               <select
                 value={duration}
-                onChange={(
-                  event
-                ) =>
-                  {(mode === "multi"
-                    ? [5, 8, 15, 30, 60]
-                    : [5, 8]
-                  ).map((seconds) => (
-                    <option key={seconds} value={seconds}>
-                      {seconds} seconds
-                    </option>
-                  ))}
-                </select>
+                onChange={(event) =>
+                  setDuration(Number(event.target.value))
+                }
+                className="w-full rounded-xl bg-black border border-white/20 px-4 py-3"
+              >
+                {(mode === "multi"
+                  ? [5, 8, 15, 30, 60]
+                  : [5, 8]
+                ).map((seconds) => (
+                  <option key={seconds} value={seconds}>
+                    {seconds} seconds
+                  </option>
+                ))}
+              </select>
               {mode === "multi" && (
                 <p className="mt-2 text-xs text-white/50">
                   Longer videos are rendered as multiple scenes. 15, 30 and 60 seconds are available in Multiple Images mode.
