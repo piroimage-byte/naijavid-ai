@@ -227,6 +227,123 @@ const SCENE_TRANSITIONS: Array<{
   { value: "zoom", label: "Zoom", description: "Zoom-style reveal between scenes" },
 ];
 
+type VideoTemplateId =
+  | "church_announcement"
+  | "sermon_highlight"
+  | "christian_inspirational"
+  | "business_promotion"
+  | "news_update"
+  | "social_media_reel"
+  | "storytelling";
+
+type VideoTemplate = {
+  id: VideoTemplateId;
+  label: string;
+  description: string;
+  videoStyle: VideoStyle;
+  aspectRatio: AspectRatio;
+  cameraMotion: CameraMotion;
+  captionStyle: CaptionStyle;
+  captionPosition: CaptionPosition;
+  sceneTransition: SceneTransition;
+  backgroundMusic: BackgroundMusic;
+  musicVolume: number;
+};
+
+const VIDEO_TEMPLATES: VideoTemplate[] = [
+  {
+    id: "church_announcement",
+    label: "Church Announcement",
+    description: "Clear ministry announcement for services, programmes and events.",
+    videoStyle: "church",
+    aspectRatio: "9:16",
+    cameraMotion: "cinematic",
+    captionStyle: "bold",
+    captionPosition: "bottom",
+    sceneTransition: "crossfade",
+    backgroundMusic: "worship",
+    musicVolume: 10,
+  },
+  {
+    id: "sermon_highlight",
+    label: "Sermon Highlight",
+    description: "Focused presentation for sermon excerpts, quotes and key teaching moments.",
+    videoStyle: "church",
+    aspectRatio: "9:16",
+    cameraMotion: "zoom_in",
+    captionStyle: "subtitle",
+    captionPosition: "bottom",
+    sceneTransition: "fade",
+    backgroundMusic: "worship",
+    musicVolume: 10,
+  },
+  {
+    id: "christian_inspirational",
+    label: "Christian Inspirational",
+    description: "Warm faith-based presentation for encouragement and devotional content.",
+    videoStyle: "cinematic",
+    aspectRatio: "9:16",
+    cameraMotion: "cinematic",
+    captionStyle: "clean",
+    captionPosition: "center",
+    sceneTransition: "crossfade",
+    backgroundMusic: "emotional",
+    musicVolume: 10,
+  },
+  {
+    id: "business_promotion",
+    label: "Business Promotion",
+    description: "Professional promotional treatment for products, services and brands.",
+    videoStyle: "business",
+    aspectRatio: "1:1",
+    cameraMotion: "zoom_in",
+    captionStyle: "bold",
+    captionPosition: "bottom",
+    sceneTransition: "slide_left",
+    backgroundMusic: "corporate",
+    musicVolume: 15,
+  },
+  {
+    id: "news_update",
+    label: "News Update",
+    description: "Clean broadcast-style setup for reports, updates and factual information.",
+    videoStyle: "news",
+    aspectRatio: "16:9",
+    cameraMotion: "static",
+    captionStyle: "subtitle",
+    captionPosition: "bottom",
+    sceneTransition: "fade",
+    backgroundMusic: "documentary",
+    musicVolume: 5,
+  },
+  {
+    id: "social_media_reel",
+    label: "Social Media Reel",
+    description: "Vertical short-form setup for Reels, Shorts, TikTok and WhatsApp Status.",
+    videoStyle: "social",
+    aspectRatio: "9:16",
+    cameraMotion: "zoom_in",
+    captionStyle: "bold",
+    captionPosition: "center",
+    sceneTransition: "zoom",
+    backgroundMusic: "upbeat",
+    musicVolume: 15,
+  },
+  {
+    id: "storytelling",
+    label: "Storytelling",
+    description: "Narrative-focused treatment for emotional stories and multi-scene videos.",
+    videoStyle: "storytelling",
+    aspectRatio: "16:9",
+    cameraMotion: "cinematic",
+    captionStyle: "clean",
+    captionPosition: "bottom",
+    sceneTransition: "crossfade",
+    backgroundMusic: "cinematic",
+    musicVolume: 10,
+  },
+];
+
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
@@ -271,6 +388,8 @@ export default function GeneratorPage() {
     useState<SceneTransition>("crossfade");
   const [showPreview, setShowPreview] =
     useState(false);
+  const [selectedTemplate, setSelectedTemplate] =
+    useState<VideoTemplateId | null>(null);
 
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -411,6 +530,21 @@ export default function GeneratorPage() {
 
     loadAccess();
   }, [user]);
+
+  function applyVideoTemplate(template: VideoTemplate) {
+    setSelectedTemplate(template.id);
+    setVideoStyle(template.videoStyle);
+    setAspectRatio(template.aspectRatio);
+    setCameraMotion(template.cameraMotion);
+    setShowCaption(true);
+    setCaptionStyle(template.captionStyle);
+    setCaptionPosition(template.captionPosition);
+    setSceneTransition(template.sceneTransition);
+    setBackgroundMusic(template.backgroundMusic);
+    setMusicVolume(template.musicVolume);
+    setMessage(`${template.label} template applied. You can still customise every setting.`);
+    setError("");
+  }
 
   // --------------------------------------------------
   // IMAGE UPLOAD
@@ -1263,6 +1397,71 @@ export default function GeneratorPage() {
             </button>
           </div>
 
+          {/* QUICK TEMPLATES */}
+
+          <div className="mb-8 rounded-2xl border border-amber-400/30 bg-amber-950/20 p-5">
+            <div className="flex flex-col gap-2">
+              <h3 className="text-2xl font-bold">
+                Quick Templates
+              </h3>
+              <p className="text-sm text-white/55">
+                Start with a ready-made video setup, then customise any setting below.
+              </p>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {VIDEO_TEMPLATES.map((template) => {
+                const selected = selectedTemplate === template.id;
+
+                return (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => applyVideoTemplate(template)}
+                    className={`rounded-xl border p-4 text-left transition ${
+                      selected
+                        ? "border-amber-200 bg-amber-100 text-black"
+                        : "border-white/15 bg-black/30 text-white hover:bg-white/10"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="font-bold">
+                        {template.label}
+                      </div>
+                      {selected && (
+                        <span className="rounded-full bg-black/10 px-2 py-1 text-xs font-bold">
+                          Applied
+                        </span>
+                      )}
+                    </div>
+
+                    <div
+                      className={`mt-2 text-sm leading-5 ${
+                        selected ? "text-black/65" : "text-white/55"
+                      }`}
+                    >
+                      {template.description}
+                    </div>
+
+                    <div
+                      className={`mt-3 text-xs ${
+                        selected ? "text-black/55" : "text-white/40"
+                      }`}
+                    >
+                      {template.aspectRatio} · {template.videoStyle} · {template.backgroundMusic}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="mt-4 text-xs text-white/40">
+              Applying a template changes style, aspect ratio, camera motion, captions,
+              transition and background music. It does not replace your prompt, images,
+              scene prompts or scene durations.
+            </p>
+          </div>
+
           {/* IMAGE UPLOAD */}
 
           {mode === "image" && (
@@ -2025,6 +2224,17 @@ export default function GeneratorPage() {
                     <p className="mt-1 font-semibold">{language}</p>
                   </div>
                 </div>
+
+                {selectedTemplate && (
+                  <div className="rounded-xl border border-amber-400/20 bg-amber-950/20 p-4">
+                    <p className="text-xs uppercase tracking-wide text-white/45">
+                      Template
+                    </p>
+                    <p className="mt-1 font-semibold">
+                      {VIDEO_TEMPLATES.find((item) => item.id === selectedTemplate)?.label}
+                    </p>
+                  </div>
+                )}
 
                 <div className="rounded-xl border border-white/10 bg-black/30 p-4">
                   <p className="text-xs uppercase tracking-wide text-white/45">
