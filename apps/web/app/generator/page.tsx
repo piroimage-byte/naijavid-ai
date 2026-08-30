@@ -274,6 +274,13 @@ export default function GeneratorPage() {
   const [imagePreview, setImagePreview] = useState("");
   const [multiImageFiles, setMultiImageFiles] = useState<File[]>([]);
   const [multiImagePreviews, setMultiImagePreviews] = useState<string[]>([]);
+  const [scenePrompts, setScenePrompts] = useState<string[]>([]);
+  const [sceneDurations, setSceneDurations] = useState<number[]>([]);
+
+  const multiSceneTotalDuration = sceneDurations.reduce(
+    (total, seconds) => total + Number(seconds || 0),
+    0
+  );
 
   const [videoUrl, setVideoUrl] = useState("");
 
@@ -435,6 +442,8 @@ export default function GeneratorPage() {
     setMultiImagePreviews(
       files.map((file) => URL.createObjectURL(file))
     );
+    setScenePrompts(files.map((_, index) => scenePrompts[index] || ""));
+    setSceneDurations(files.map((_, index) => sceneDurations[index] || 5));
   }
 
   // --------------------------------------------------
@@ -540,7 +549,10 @@ export default function GeneratorPage() {
             prompt,
             mode,
             language,
-            duration,
+            duration:
+              mode === "multi"
+                ? multiSceneTotalDuration
+                : duration,
             videoUrl: generatedVideoUrl,
             watermark,
             aspectRatio,
@@ -800,7 +812,17 @@ export default function GeneratorPage() {
       buildStyledPrompt(prompt, videoStyle)
     );
     formData.append("language", language);
-    formData.append("duration", String(duration));
+    if (multiSceneTotalDuration < 2) {
+      throw new Error("Please set a duration for every scene.");
+    }
+
+    if (multiSceneTotalDuration > 60) {
+      throw new Error("Total scene duration cannot exceed 60 seconds.");
+    }
+
+    formData.append("duration", String(multiSceneTotalDuration));
+    formData.append("scene_prompts", JSON.stringify(scenePrompts));
+    formData.append("scene_durations", JSON.stringify(sceneDurations));
     formData.append("watermark", watermark);
     formData.append("aspect_ratio", aspectRatio);
     formData.append("motion_style", cameraMotion);
@@ -1243,26 +1265,82 @@ export default function GeneratorPage() {
               />
 
               <p className="mt-2 text-sm text-white/50">
-                Images will play in the order you select them. The total video duration is shared evenly across all images.
+                Each image is a scene. Give every scene its own prompt and duration.
               </p>
 
               {multiImagePreviews.length > 0 && (
-                <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div className="mt-5 space-y-4">
                   {multiImagePreviews.map((preview, index) => (
                     <div
                       key={preview}
-                      className="rounded-xl border border-white/10 bg-black/30 p-2"
+                      className="rounded-2xl border border-white/10 bg-black/30 p-4"
                     >
-                      <img
-                        src={preview}
-                        alt={`Selected image ${index + 1}`}
-                        className="aspect-square w-full rounded-lg object-cover"
-                      />
-                      <p className="mt-2 text-center text-xs text-white/60">
-                        Scene {index + 1}
-                      </p>
+                      <div className="grid gap-4 md:grid-cols-[160px_1fr]">
+                        <div>
+                          <img
+                            src={preview}
+                            alt={`Selected image ${index + 1}`}
+                            className="aspect-square w-full rounded-xl object-cover"
+                          />
+                          <p className="mt-2 text-center text-sm font-semibold text-white/70">
+                            Scene {index + 1}
+                          </p>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div>
+                            <label className="mb-2 block text-sm font-semibold">
+                              Scene Prompt
+                            </label>
+                            <textarea
+                              value={scenePrompts[index] || ""}
+                              onChange={(event) => {
+                                const next = [...scenePrompts];
+                                next[index] = event.target.value;
+                                setScenePrompts(next);
+                              }}
+                              placeholder={`Describe what happens in Scene ${index + 1}`}
+                              rows={3}
+                              className="w-full rounded-xl border border-white/20 bg-black px-4 py-3"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-2 block text-sm font-semibold">
+                              Scene Duration
+                            </label>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="number"
+                                min={1}
+                                max={60}
+                                value={sceneDurations[index] || 1}
+                                onChange={(event) => {
+                                  const next = [...sceneDurations];
+                                  next[index] = Math.max(1, Number(event.target.value) || 1);
+                                  setSceneDurations(next);
+                                }}
+                                className="w-28 rounded-xl border border-white/20 bg-black px-4 py-3"
+                              />
+                              <span className="text-sm text-white/60">seconds</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   ))}
+
+                  <div className="rounded-xl border border-white/15 bg-white/5 px-4 py-3">
+                    <span className="font-semibold">Total video duration: </span>
+                    <span className={multiSceneTotalDuration > 60 ? "text-red-300" : "text-white"}>
+                      {multiSceneTotalDuration} seconds
+                    </span>
+                    {multiSceneTotalDuration > 60 && (
+                      <p className="mt-1 text-sm text-red-300">
+                        Reduce scene durations. The current maximum is 60 seconds.
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1694,26 +1772,24 @@ export default function GeneratorPage() {
                 Duration
               </label>
 
-              <select
-                value={duration}
-                onChange={(event) =>
-                  setDuration(Number(event.target.value))
-                }
-                className="w-full rounded-xl bg-black border border-white/20 px-4 py-3"
-              >
-                {(mode === "multi"
-                  ? [5, 8, 15, 30, 60]
-                  : [5, 8]
-                ).map((seconds) => (
-                  <option key={seconds} value={seconds}>
-                    {seconds} seconds
-                  </option>
-                ))}
-              </select>
-              {mode === "multi" && (
-                <p className="mt-2 text-xs text-white/50">
-                  Longer videos are rendered as multiple scenes. 15, 30 and 60 seconds are available in Multiple Images mode.
-                </p>
+              {mode === "multi" ? (
+                <div className="rounded-xl border border-white/20 bg-black px-4 py-3">
+                  {multiSceneTotalDuration} seconds (automatic from scene timing)
+                </div>
+              ) : (
+                <select
+                  value={duration}
+                  onChange={(event) =>
+                    setDuration(Number(event.target.value))
+                  }
+                  className="w-full rounded-xl bg-black border border-white/20 px-4 py-3"
+                >
+                  {[5, 8].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {seconds} seconds
+                    </option>
+                  ))}
+                </select>
               )}
 
             </div>
