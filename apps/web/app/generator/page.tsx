@@ -27,6 +27,8 @@ type GenerationAccess = {
   limit: number | null;
   subscriptionExpired?: boolean;
   subscriptionExpiresAt?: string | null;
+  requiresPro?: boolean;
+  restrictionReason?: string | null;
 };
 
 type Mode = "text" | "image" | "multi";
@@ -344,6 +346,26 @@ const VIDEO_TEMPLATES: VideoTemplate[] = [
   },
 ];
 
+const FREE_VIDEO_STYLES: VideoStyle[] = [
+  "cinematic",
+  "church",
+  "social",
+];
+
+const FREE_CAMERA_MOTIONS: CameraMotion[] = [
+  "cinematic",
+  "static",
+];
+
+function hasActivePro(
+  access: GenerationAccess | null
+) {
+  return (
+    access?.plan === "pro" &&
+    access?.subscriptionStatus === "active"
+  );
+}
+
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
@@ -510,6 +532,12 @@ export default function GeneratorPage() {
 
           subscriptionExpiresAt:
             data.subscriptionExpiresAt ?? null,
+
+          requiresPro:
+            Boolean(data.requiresPro),
+
+          restrictionReason:
+            data.restrictionReason ?? null,
         };
 
         setGenerationAccess(access);
@@ -531,7 +559,40 @@ export default function GeneratorPage() {
     loadAccess();
   }, [user]);
 
+  function currentFeatureRequest() {
+    return {
+      mode,
+      duration:
+        mode === "multi"
+          ? multiSceneTotalDuration
+          : duration,
+      templateId: selectedTemplate,
+      videoStyle,
+      aspectRatio,
+      cameraMotion,
+      captionStyle,
+      captionPosition,
+      showWatermark,
+      watermark,
+      watermarkPosition,
+      watermarkOpacity,
+      backgroundMusic,
+      sceneTransition,
+    };
+  }
+
+  function showProRequired(feature: string) {
+    setError(
+      `${feature} is available on Founding Pro. Upgrade to unlock this feature.`
+    );
+    setMessage("");
+  }
+
   function applyVideoTemplate(template: VideoTemplate) {
+    if (!hasActivePro(generationAccess)) {
+      showProRequired("Video templates");
+      return;
+    }
     setSelectedTemplate(template.id);
     setVideoStyle(template.videoStyle);
     setAspectRatio(template.aspectRatio);
@@ -649,6 +710,7 @@ export default function GeneratorPage() {
         body: JSON.stringify({
           userId: currentUser.uid,
           action,
+          features: currentFeatureRequest(),
         }),
       }
     );
@@ -690,6 +752,12 @@ export default function GeneratorPage() {
 
       subscriptionExpiresAt:
         data.subscriptionExpiresAt ?? null,
+
+          requiresPro:
+            Boolean(data.requiresPro),
+
+          restrictionReason:
+            data.restrictionReason ?? null,
     };
 
     setGenerationAccess(updated);
@@ -1101,7 +1169,10 @@ export default function GeneratorPage() {
 
       if (!access.allowed) {
         setError(
-          "You have reached your free daily limit. Upgrade to Founding Pro for unlimited generations."
+          access.requiresPro
+            ? access.restrictionReason ||
+                "This feature requires Founding Pro."
+            : "You have reached your free daily limit. Upgrade to Founding Pro for unlimited generations."
         );
 
         setMessage("");
@@ -1320,11 +1391,18 @@ export default function GeneratorPage() {
               </strong>
             </p>
 
-            <p className="mb-6">
+            <p className="mb-4">
               Remaining today:{" "}
               <strong>
                 {generationAccess?.remaining ?? 0}
               </strong>
+            </p>
+
+            <p className="mb-6 text-sm text-white/60">
+              Free includes text and single-image video, up to 8 seconds,
+              16:9 or 9:16, basic styles and captions. Pro unlocks multiple
+              images, 60-second videos, templates, music, advanced motion,
+              square video and custom watermark controls.
             </p>
 
             <button
@@ -1384,9 +1462,13 @@ export default function GeneratorPage() {
 
             <button
               type="button"
-              onClick={() =>
-                setMode("multi")
-              }
+              onClick={() => {
+                if (!hasActivePro(generationAccess)) {
+                  showProRequired("Multiple-image videos");
+                  return;
+                }
+                setMode("multi");
+              }}
               className={`px-8 py-4 rounded-2xl font-semibold ${
                 mode === "multi"
                   ? "bg-white text-black"
@@ -1394,6 +1476,11 @@ export default function GeneratorPage() {
               }`}
             >
               Multiple Images
+              {!hasActivePro(generationAccess) && (
+                <span className="ml-2 rounded-full bg-amber-300 px-2 py-0.5 text-xs text-black">
+                  PRO
+                </span>
+              )}
             </button>
           </div>
 
@@ -1428,11 +1515,15 @@ export default function GeneratorPage() {
                       <div className="font-bold">
                         {template.label}
                       </div>
-                      {selected && (
+                      {selected ? (
                         <span className="rounded-full bg-black/10 px-2 py-1 text-xs font-bold">
                           Applied
                         </span>
-                      )}
+                      ) : !hasActivePro(generationAccess) ? (
+                        <span className="rounded-full bg-amber-300 px-2 py-1 text-xs font-bold text-black">
+                          PRO
+                        </span>
+                      ) : null}
                     </div>
 
                     <div
@@ -1705,19 +1796,31 @@ export default function GeneratorPage() {
                         styleOption.value
                       }
                       type="button"
-                      onClick={() =>
-                        setVideoStyle(
-                          styleOption.value
-                        )
-                      }
+                      onClick={() => {
+                        if (
+                          !hasActivePro(generationAccess) &&
+                          !FREE_VIDEO_STYLES.includes(styleOption.value)
+                        ) {
+                          showProRequired("Advanced video styles");
+                          return;
+                        }
+
+                        setVideoStyle(styleOption.value);
+                      }}
                       className={`rounded-2xl border p-4 text-left transition ${
                         selected
                           ? "border-white bg-white text-black"
                           : "border-white/15 bg-black/30 text-white hover:bg-white/10"
                       }`}
                     >
-                      <div className="font-bold">
-                        {styleOption.label}
+                      <div className="flex items-center justify-between gap-2 font-bold">
+                        <span>{styleOption.label}</span>
+                        {!hasActivePro(generationAccess) &&
+                          !FREE_VIDEO_STYLES.includes(styleOption.value) && (
+                            <span className="rounded-full bg-amber-300 px-2 py-0.5 text-[10px] text-black">
+                              PRO
+                            </span>
+                          )}
                       </div>
 
                       <div
@@ -1757,15 +1860,31 @@ export default function GeneratorPage() {
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => setAspectRatio(option.value)}
+                    onClick={() => {
+                      if (
+                        !hasActivePro(generationAccess) &&
+                        option.value === "1:1"
+                      ) {
+                        showProRequired("1:1 square video");
+                        return;
+                      }
+
+                      setAspectRatio(option.value);
+                    }}
                     className={`rounded-2xl border p-4 text-left transition ${
                       selected
                         ? "border-white bg-white text-black"
                         : "border-white/15 bg-black/30 text-white hover:bg-white/10"
                     }`}
                   >
-                    <div className="font-bold">
-                      {option.label}
+                    <div className="flex items-center justify-between gap-2 font-bold">
+                      <span>{option.label}</span>
+                      {!hasActivePro(generationAccess) &&
+                        option.value === "1:1" && (
+                          <span className="rounded-full bg-amber-300 px-2 py-0.5 text-[10px] text-black">
+                            PRO
+                          </span>
+                        )}
                     </div>
                     <div
                       className={`mt-2 text-sm ${
@@ -1797,15 +1916,31 @@ export default function GeneratorPage() {
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => setCameraMotion(option.value)}
+                    onClick={() => {
+                      if (
+                        !hasActivePro(generationAccess) &&
+                        !FREE_CAMERA_MOTIONS.includes(option.value)
+                      ) {
+                        showProRequired("Advanced camera motion");
+                        return;
+                      }
+
+                      setCameraMotion(option.value);
+                    }}
                     className={`rounded-2xl border p-4 text-left transition ${
                       selected
                         ? "border-white bg-white text-black"
                         : "border-white/15 bg-black/30 text-white hover:bg-white/10"
                     }`}
                   >
-                    <div className="font-bold">
-                      {option.label}
+                    <div className="flex items-center justify-between gap-2 font-bold">
+                      <span>{option.label}</span>
+                      {!hasActivePro(generationAccess) &&
+                        !FREE_CAMERA_MOTIONS.includes(option.value) && (
+                          <span className="rounded-full bg-amber-300 px-2 py-0.5 text-[10px] text-black">
+                            PRO
+                          </span>
+                        )}
                     </div>
                     <div
                       className={`mt-2 text-sm leading-5 ${
@@ -1863,9 +1998,17 @@ export default function GeneratorPage() {
                           <button
                             key={option.value}
                             type="button"
-                            onClick={() =>
-                              setCaptionStyle(option.value)
-                            }
+                            onClick={() => {
+                              if (
+                                !hasActivePro(generationAccess) &&
+                                option.value !== "clean"
+                              ) {
+                                showProRequired("Advanced caption styles");
+                                return;
+                              }
+
+                              setCaptionStyle(option.value);
+                            }}
                             className={`rounded-xl border p-4 text-left ${
                               selected
                                 ? "border-white bg-white text-black"
@@ -1906,9 +2049,17 @@ export default function GeneratorPage() {
                         <button
                           key={value}
                           type="button"
-                          onClick={() =>
-                            setCaptionPosition(value)
-                          }
+                          onClick={() => {
+                            if (
+                              !hasActivePro(generationAccess) &&
+                              value !== "bottom"
+                            ) {
+                              showProRequired("Advanced caption positioning");
+                              return;
+                            }
+
+                            setCaptionPosition(value);
+                          }}
                           className={`rounded-xl px-5 py-3 font-semibold ${
                             captionPosition === value
                               ? "bg-white text-black"
@@ -1944,17 +2095,31 @@ export default function GeneratorPage() {
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() =>
-                      setBackgroundMusic(option.value)
-                    }
+                    onClick={() => {
+                      if (
+                        !hasActivePro(generationAccess) &&
+                        option.value !== "none"
+                      ) {
+                        showProRequired("Background music");
+                        return;
+                      }
+
+                      setBackgroundMusic(option.value);
+                    }}
                     className={`rounded-xl border p-4 text-left ${
                       selected
                         ? "border-white bg-white text-black"
                         : "border-white/15 text-white hover:bg-white/10"
                     }`}
                   >
-                    <div className="font-bold">
-                      {option.label}
+                    <div className="flex items-center justify-between gap-2 font-bold">
+                      <span>{option.label}</span>
+                      {!hasActivePro(generationAccess) &&
+                        option.value !== "none" && (
+                          <span className="rounded-full bg-amber-300 px-2 py-0.5 text-[10px] text-black">
+                            PRO
+                          </span>
+                        )}
                     </div>
                     <div
                       className={`mt-1 text-sm ${
@@ -2068,6 +2233,7 @@ export default function GeneratorPage() {
 
               <input
                 value={watermark}
+                disabled={!hasActivePro(generationAccess)}
                 onChange={(
                   event
                 ) =>
@@ -2096,9 +2262,14 @@ export default function GeneratorPage() {
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setShowWatermark(!showWatermark)
-                  }
+                  onClick={() => {
+                    if (!hasActivePro(generationAccess)) {
+                      showProRequired("Custom watermark controls");
+                      return;
+                    }
+
+                    setShowWatermark(!showWatermark);
+                  }}
                   className={`rounded-full px-5 py-2 font-semibold ${
                     showWatermark
                       ? "bg-white text-black"
@@ -2128,9 +2299,14 @@ export default function GeneratorPage() {
                         <button
                           key={value}
                           type="button"
-                          onClick={() =>
-                            setWatermarkPosition(value)
-                          }
+                          onClick={() => {
+                            if (!hasActivePro(generationAccess)) {
+                              showProRequired("Custom watermark controls");
+                              return;
+                            }
+
+                            setWatermarkPosition(value);
+                          }}
                           className={`rounded-xl border px-4 py-3 font-semibold ${
                             watermarkPosition === value
                               ? "border-white bg-white text-black"
@@ -2152,6 +2328,7 @@ export default function GeneratorPage() {
                       type="range"
                       min={20}
                       max={100}
+                      disabled={!hasActivePro(generationAccess)}
                       step={10}
                       value={watermarkOpacity}
                       onChange={(event) =>

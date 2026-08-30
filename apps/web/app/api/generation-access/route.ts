@@ -8,6 +8,17 @@ import { getAdminDb } from "@/lib/firebase-admin";
 
 const FREE_DAILY_LIMIT = 3;
 
+const FREE_VIDEO_STYLES = new Set([
+  "cinematic",
+  "church",
+  "social",
+]);
+
+const FREE_CAMERA_MOTIONS = new Set([
+  "cinematic",
+  "static",
+]);
+
 function getTodayKey() {
   const now = new Date();
 
@@ -19,9 +30,7 @@ function getTodayKey() {
 }
 
 function getExpiryDate(value: unknown): Date | null {
-  if (!value) {
-    return null;
-  }
+  if (!value) return null;
 
   if (value instanceof Timestamp) {
     return value.toDate();
@@ -58,6 +67,115 @@ function getExpiryDate(value: unknown): Date | null {
   return null;
 }
 
+function getProRestriction(
+  rawFeatures: unknown
+): string | null {
+  if (
+    !rawFeatures ||
+    typeof rawFeatures !== "object"
+  ) {
+    return null;
+  }
+
+  const features =
+    rawFeatures as Record<string, unknown>;
+
+  const mode =
+    String(features.mode || "text");
+
+  const duration =
+    Number(features.duration || 0);
+
+  const templateId =
+    features.templateId
+      ? String(features.templateId)
+      : "";
+
+  const videoStyle =
+    String(features.videoStyle || "cinematic");
+
+  const aspectRatio =
+    String(features.aspectRatio || "16:9");
+
+  const cameraMotion =
+    String(features.cameraMotion || "cinematic");
+
+  const captionStyle =
+    String(features.captionStyle || "clean");
+
+  const captionPosition =
+    String(features.captionPosition || "bottom");
+
+  const showWatermark =
+    features.showWatermark !== false;
+
+  const watermark =
+    String(features.watermark || "naijavid.ai");
+
+  const watermarkPosition =
+    String(
+      features.watermarkPosition ||
+        "bottom_right"
+    );
+
+  const watermarkOpacity =
+    Number(
+      features.watermarkOpacity ?? 70
+    );
+
+  const backgroundMusic =
+    String(
+      features.backgroundMusic || "none"
+    );
+
+  if (mode === "multi") {
+    return "Multiple-image videos require Founding Pro.";
+  }
+
+  if (duration > 8) {
+    return "Videos longer than 8 seconds require Founding Pro.";
+  }
+
+  if (templateId) {
+    return "Video templates require Founding Pro.";
+  }
+
+  if (!FREE_VIDEO_STYLES.has(videoStyle)) {
+    return "This video style requires Founding Pro.";
+  }
+
+  if (aspectRatio === "1:1") {
+    return "1:1 square video requires Founding Pro.";
+  }
+
+  if (!FREE_CAMERA_MOTIONS.has(cameraMotion)) {
+    return "This camera motion requires Founding Pro.";
+  }
+
+  if (captionStyle !== "clean") {
+    return "Advanced caption styles require Founding Pro.";
+  }
+
+  if (captionPosition !== "bottom") {
+    return "Advanced caption positioning requires Founding Pro.";
+  }
+
+  if (backgroundMusic !== "none") {
+    return "Background music requires Founding Pro.";
+  }
+
+  if (
+    !showWatermark ||
+    watermark !== "naijavid.ai" ||
+    watermarkPosition !== "bottom_right" ||
+    watermarkOpacity !== 70
+  ) {
+    return "Custom watermark controls require Founding Pro.";
+  }
+
+  return null;
+}
+
 export async function POST(
   request: NextRequest
 ) {
@@ -79,8 +197,7 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-          error:
-            "userId is required.",
+          error: "userId is required.",
         },
         {
           status: 400,
@@ -95,8 +212,7 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-          error:
-            "Invalid action.",
+          error: "Invalid action.",
         },
         {
           status: 400,
@@ -104,13 +220,10 @@ export async function POST(
       );
     }
 
-    const db =
-      getAdminDb();
+    const db = getAdminDb();
 
     const userRef =
-      db
-        .collection("users")
-        .doc(userId);
+      db.collection("users").doc(userId);
 
     const today =
       getTodayKey();
@@ -122,9 +235,7 @@ export async function POST(
       await db.runTransaction(
         async (transaction) => {
           const snapshot =
-            await transaction.get(
-              userRef
-            );
+            await transaction.get(userRef);
 
           const data =
             snapshot.exists
@@ -137,8 +248,7 @@ export async function POST(
               : "free";
 
           const storedSubscriptionStatus =
-            data.subscriptionStatus ===
-            "active"
+            data.subscriptionStatus === "active"
               ? "active"
               : "inactive";
 
@@ -149,75 +259,49 @@ export async function POST(
 
           const subscriptionExpired =
             expiryDate !== null &&
-            expiryDate.getTime() <=
-              now.getTime();
+            expiryDate.getTime() <= now.getTime();
 
           const hasValidExpiry =
             expiryDate !== null &&
-            expiryDate.getTime() >
-              now.getTime();
+            expiryDate.getTime() > now.getTime();
 
           const isPro =
             storedPlan === "pro" &&
-            storedSubscriptionStatus ===
-              "active" &&
+            storedSubscriptionStatus === "active" &&
             hasValidExpiry;
-
-          // ==========================================
-          // ACTIVE FOUNDING PRO
-          // ==========================================
 
           if (isPro) {
             return {
               allowed: true,
-
               plan: "pro",
-
-              subscriptionStatus:
-                "active",
-
+              subscriptionStatus: "active",
               unlimited: true,
-
               usedToday: 0,
-
               remaining: null,
-
               limit: null,
-
-              subscriptionExpired:
-                false,
-
+              subscriptionExpired: false,
               subscriptionExpiresAt:
                 expiryDate
                   ? expiryDate.toISOString()
                   : null,
+              requiresPro: false,
+              restrictionReason: null,
             };
           }
 
-          // ==========================================
-          // AUTO-DOWNGRADE EXPIRED PRO
-          // ==========================================
-
           if (
             storedPlan === "pro" &&
-            storedSubscriptionStatus ===
-              "active" &&
+            storedSubscriptionStatus === "active" &&
             subscriptionExpired
           ) {
             transaction.set(
               userRef,
               {
                 plan: "free",
-
-                subscriptionStatus:
-                  "inactive",
-
-                generationLimit:
-                  FREE_DAILY_LIMIT,
-
+                subscriptionStatus: "inactive",
+                generationLimit: FREE_DAILY_LIMIT,
                 subscriptionExpiredAt:
                   FieldValue.serverTimestamp(),
-
                 updatedAt:
                   FieldValue.serverTimestamp(),
               },
@@ -227,107 +311,91 @@ export async function POST(
             );
           }
 
-          // ==========================================
-          // FREE DAILY USAGE
-          // ==========================================
+          const proRestriction =
+            getProRestriction(body.features);
+
+          if (proRestriction) {
+            return {
+              allowed: false,
+              plan: "free",
+              subscriptionStatus: "inactive",
+              unlimited: false,
+              usedToday: Number(
+                data.dailyGenerationCount || 0
+              ),
+              remaining: null,
+              limit: FREE_DAILY_LIMIT,
+              subscriptionExpired,
+              subscriptionExpiresAt:
+                expiryDate
+                  ? expiryDate.toISOString()
+                  : null,
+              requiresPro: true,
+              restrictionReason:
+                proRestriction,
+            };
+          }
 
           let usedToday =
             Number(
-              data.dailyGenerationCount ||
-                0
+              data.dailyGenerationCount || 0
             );
 
           const storedDate =
             String(
-              data.dailyGenerationDate ||
-                ""
+              data.dailyGenerationDate || ""
             );
 
-          if (
-            storedDate !== today
-          ) {
+          if (storedDate !== today) {
             usedToday = 0;
           }
 
-          // ==========================================
-          // CHECK ONLY
-          // ==========================================
-
-          if (
-            action === "check"
-          ) {
+          if (action === "check") {
             const remaining =
               Math.max(
-                FREE_DAILY_LIMIT -
-                  usedToday,
+                FREE_DAILY_LIMIT - usedToday,
                 0
               );
 
             return {
               allowed:
-                usedToday <
-                FREE_DAILY_LIMIT,
-
+                usedToday < FREE_DAILY_LIMIT,
               plan: "free",
-
-              subscriptionStatus:
-                "inactive",
-
+              subscriptionStatus: "inactive",
               unlimited: false,
-
               usedToday,
-
               remaining,
-
-              limit:
-                FREE_DAILY_LIMIT,
-
+              limit: FREE_DAILY_LIMIT,
               subscriptionExpired,
-
               subscriptionExpiresAt:
                 expiryDate
                   ? expiryDate.toISOString()
                   : null,
+              requiresPro: false,
+              restrictionReason: null,
             };
           }
 
-          // ==========================================
-          // FREE LIMIT REACHED
-          // ==========================================
-
           if (
-            usedToday >=
-            FREE_DAILY_LIMIT
+            usedToday >= FREE_DAILY_LIMIT
           ) {
             return {
               allowed: false,
-
               plan: "free",
-
-              subscriptionStatus:
-                "inactive",
-
+              subscriptionStatus: "inactive",
               unlimited: false,
-
               usedToday,
-
               remaining: 0,
-
-              limit:
-                FREE_DAILY_LIMIT,
-
+              limit: FREE_DAILY_LIMIT,
               subscriptionExpired,
-
               subscriptionExpiresAt:
                 expiryDate
                   ? expiryDate.toISOString()
                   : null,
+              requiresPro: false,
+              restrictionReason: null,
             };
           }
-
-          // ==========================================
-          // INCREMENT FREE USAGE
-          // ==========================================
 
           const newCount =
             usedToday + 1;
@@ -335,15 +403,9 @@ export async function POST(
           transaction.set(
             userRef,
             {
-              dailyGenerationDate:
-                today,
-
-              dailyGenerationCount:
-                newCount,
-
-              generationLimit:
-                FREE_DAILY_LIMIT,
-
+              dailyGenerationDate: today,
+              dailyGenerationCount: newCount,
+              generationLimit: FREE_DAILY_LIMIT,
               updatedAt:
                 FieldValue.serverTimestamp(),
             },
@@ -354,33 +416,23 @@ export async function POST(
 
           return {
             allowed: true,
-
             plan: "free",
-
-            subscriptionStatus:
-              "inactive",
-
+            subscriptionStatus: "inactive",
             unlimited: false,
-
-            usedToday:
-              newCount,
-
+            usedToday: newCount,
             remaining:
               Math.max(
-                FREE_DAILY_LIMIT -
-                  newCount,
+                FREE_DAILY_LIMIT - newCount,
                 0
               ),
-
-            limit:
-              FREE_DAILY_LIMIT,
-
+            limit: FREE_DAILY_LIMIT,
             subscriptionExpired,
-
             subscriptionExpiresAt:
               expiryDate
                 ? expiryDate.toISOString()
                 : null,
+            requiresPro: false,
+            restrictionReason: null,
           };
         }
       );
@@ -403,7 +455,6 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-
         error:
           error?.message ||
           "Unable to check generation access.",
