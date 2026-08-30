@@ -430,6 +430,23 @@ export default function GeneratorPage() {
   const [generating, setGenerating] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [progressStep, setProgressStep] = useState(0);
+  const [progressPercent, setProgressPercent] = useState(0);
+
+  const GENERATION_STAGES = [
+    "Preparing",
+    "Checking access",
+    "Processing media",
+    "Rendering & uploading",
+    "Saving to history",
+    "Complete",
+  ] as const;
+
+  function updateProgress(step: number, percent: number, status: string) {
+    setProgressStep(step);
+    setProgressPercent(percent);
+    setMessage(status);
+  }
 
   // PLAN
   const [generationAccess, setGenerationAccess] =
@@ -1186,9 +1203,11 @@ export default function GeneratorPage() {
     try {
       setGenerating(true);
       setError("");
-      setMessage(
-        "Checking your plan..."
-      );
+      setProgressStep(0);
+      setProgressPercent(5);
+      updateProgress(0, 10, "Preparing your generation request...");
+
+      updateProgress(1, 20, "Checking your plan and secure access...");
 
       const access =
         await updateGenerationAccess(
@@ -1207,8 +1226,20 @@ export default function GeneratorPage() {
         return;
       }
 
-      setMessage(
-        "Generating video..."
+      updateProgress(
+        2,
+        35,
+        mode === "multi"
+          ? "Processing your images, scene timing and narration..."
+          : mode === "image"
+            ? "Processing your image and narration..."
+            : "Processing your prompt, visual and narration..."
+      );
+
+      updateProgress(
+        3,
+        55,
+        "Rendering the video and uploading the final file. Longer videos may take more time..."
       );
 
       const generatedUrl =
@@ -1224,24 +1255,20 @@ export default function GeneratorPage() {
 
       // Render securely records Free-plan usage after authentication.
 
-      setMessage(
-        "Saving video to history..."
-      );
+      updateProgress(4, 90, "Saving video to your history...");
 
       const saved =
         await saveVideoToHistory(
           generatedUrl
         );
 
-      if (saved) {
-        setMessage(
-          "Video generated successfully and saved to history."
-        );
-      } else {
-        setMessage(
-          "Video generated successfully."
-        );
-      }
+      updateProgress(
+        5,
+        100,
+        saved
+          ? "Video generated successfully and saved to history."
+          : "Video generated successfully."
+      );
     } catch (err: any) {
       console.error(
         "GENERATION ERROR:",
@@ -2573,11 +2600,50 @@ export default function GeneratorPage() {
             </div>
           )}
 
-          {/* STATUS */}
+          {/* STATUS / GENERATION PROGRESS */}
 
           {message && (
-            <div className="mb-6 rounded-xl border border-white/10 bg-black/30 p-4 text-white/80">
-              {message}
+            <div className="mb-6 rounded-2xl border border-white/10 bg-black/30 p-5 text-white/80">
+              <div className="flex items-center justify-between gap-4">
+                <p className="font-semibold text-white">{message}</p>
+                <span className="text-sm font-bold text-white/60">
+                  {progressPercent}%
+                </span>
+              </div>
+
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-white transition-all duration-500"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+
+              {(generating || progressPercent === 100) && (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {GENERATION_STAGES.map((stage, index) => {
+                    const done = index < progressStep || progressPercent === 100;
+                    const active = index === progressStep && progressPercent < 100;
+
+                    return (
+                      <div
+                        key={stage}
+                        className={`rounded-xl border px-3 py-2 text-sm ${
+                          done
+                            ? "border-white/20 bg-white/10 text-white"
+                            : active
+                              ? "border-white/30 bg-white/15 text-white"
+                              : "border-white/5 bg-black/20 text-white/35"
+                        }`}
+                      >
+                        <span className="mr-2">
+                          {done ? "✓" : active ? "●" : "○"}
+                        </span>
+                        {stage}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
