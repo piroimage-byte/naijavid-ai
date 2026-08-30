@@ -446,6 +446,46 @@ export default function GeneratorPage() {
     setSceneDurations(files.map((_, index) => sceneDurations[index] || 5));
   }
 
+  function moveMultiScene(
+    fromIndex: number,
+    toIndex: number
+  ) {
+    if (
+      toIndex < 0 ||
+      toIndex >= multiImageFiles.length ||
+      fromIndex === toIndex
+    ) {
+      return;
+    }
+
+    const moveItem = <T,>(
+      items: T[],
+      from: number,
+      to: number
+    ) => {
+      const next = [...items];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    };
+
+    setMultiImageFiles((current) =>
+      moveItem(current, fromIndex, toIndex)
+    );
+
+    setMultiImagePreviews((current) =>
+      moveItem(current, fromIndex, toIndex)
+    );
+
+    setScenePrompts((current) =>
+      moveItem(current, fromIndex, toIndex)
+    );
+
+    setSceneDurations((current) =>
+      moveItem(current, fromIndex, toIndex)
+    );
+  }
+
   // --------------------------------------------------
   // GENERATION ACCESS
   // --------------------------------------------------
@@ -1285,6 +1325,32 @@ export default function GeneratorPage() {
                           <p className="mt-2 text-center text-sm font-semibold text-white/70">
                             Scene {index + 1}
                           </p>
+
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              disabled={index === 0}
+                              onClick={() =>
+                                moveMultiScene(index, index - 1)
+                              }
+                              className="rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
+                            >
+                              ↑ Move Up
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={
+                                index === multiImagePreviews.length - 1
+                              }
+                              onClick={() =>
+                                moveMultiScene(index, index + 1)
+                              }
+                              className="rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
+                            >
+                              ↓ Move Down
+                            </button>
+                          </div>
                         </div>
 
                         <div className="space-y-4">
