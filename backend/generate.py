@@ -40,14 +40,9 @@ else:
 
 
 # =========================================================
-# MOVIEPY
+# LOW-MEMORY RENDERING
 # =========================================================
-
-from moviepy.editor import (
-    ImageClip,
-    CompositeVideoClip,
-    AudioFileClip,
-)
+# MoviePy is intentionally not imported. NaijaVid renders through FFmpeg.
 
 
 # =========================================================
@@ -82,6 +77,12 @@ FPS = 12
 MAX_DURATION_SECONDS = 60
 
 JPEG_QUALITY = 88
+
+# Render free instances have a 512 MB RAM ceiling.
+# Keep FFmpeg conservative so a single generation does not create too many
+# encoder/filter worker threads at once.
+FFMPEG_THREADS = max(1, min(2, int(os.getenv("NAIJAVID_FFMPEG_THREADS", "1"))))
+
 
 MUSIC_DIR = BASE_DIR / "music"
 MUSIC_DIR.mkdir(parents=True, exist_ok=True)
@@ -1944,6 +1945,8 @@ def save_cinematic_video(
         "libx264",
         "-preset",
         "ultrafast",
+        "-threads",
+        str(FFMPEG_THREADS),
         "-tune",
         "stillimage",
         "-pix_fmt",
@@ -1973,16 +1976,14 @@ def save_cinematic_video(
     try:
         result = subprocess.run(
             command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             check=False,
         )
 
         if result.returncode != 0:
             raise RuntimeError(
-                "FFmpeg video render failed: "
-                + result.stderr[-1200:]
+                "FFmpeg video render failed. Check Render logs for the FFmpeg failure."
             )
 
     finally:
@@ -2033,6 +2034,7 @@ def render_silent_image_scene(
         "-r", str(FPS),
         "-c:v", "libx264",
         "-preset", "ultrafast",
+        "-threads", str(FFMPEG_THREADS),
         "-tune", "stillimage",
         "-pix_fmt", "yuv420p",
         "-an",
@@ -2041,16 +2043,15 @@ def render_silent_image_scene(
 
     result = subprocess.run(
         command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         check=False,
     )
 
     if result.returncode != 0:
         cleanup_file(output_path)
         raise RuntimeError(
-            "FFmpeg scene render failed: " + result.stderr[-1200:]
+            "FFmpeg scene render failed. Check Render logs for the FFmpeg failure."
         )
 
     return output_path
@@ -2115,7 +2116,7 @@ def combine_image_scenes(
 
             if concat_result.returncode != 0:
                 raise RuntimeError(
-                    "FFmpeg scene combine failed: " + concat_result.stderr[-1200:]
+                    "FFmpeg scene combine failed. Check Render logs for the FFmpeg failure."
                 )
 
         # -------------------------------------------------
@@ -2156,6 +2157,7 @@ def combine_image_scenes(
                 previous_label = output_label
 
             command.extend([
+                "-filter_complex_threads", str(FFMPEG_THREADS),
                 "-filter_complex",
                 ";".join(filter_parts),
                 "-map",
@@ -2168,6 +2170,8 @@ def combine_image_scenes(
                 "libx264",
                 "-preset",
                 "ultrafast",
+                "-threads",
+                str(FFMPEG_THREADS),
                 "-pix_fmt",
                 "yuv420p",
                 "-an",
@@ -2184,7 +2188,7 @@ def combine_image_scenes(
 
             if result.returncode != 0:
                 raise RuntimeError(
-                    "FFmpeg scene transition failed: " + result.stderr[-1600:]
+                    "FFmpeg scene transition failed. Check Render logs for the FFmpeg failure."
                 )
 
         # -------------------------------------------------
@@ -2244,7 +2248,7 @@ def combine_image_scenes(
             audio_map = "[aout]"
 
         if filter_parts:
-            command.extend(["-filter_complex", ";".join(filter_parts)])
+            command.extend(["-filter_complex_threads", str(FFMPEG_THREADS), "-filter_complex", ";".join(filter_parts)])
 
         command.extend([
             "-map", "0:v:0",
@@ -2260,15 +2264,14 @@ def combine_image_scenes(
 
         result = subprocess.run(
             command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             check=False,
         )
 
         if result.returncode != 0:
             raise RuntimeError(
-                "FFmpeg multi-image audio mix failed: " + result.stderr[-1200:]
+                "FFmpeg multi-image audio mix failed. Check Render logs for the FFmpeg failure."
             )
 
         return output_path.name
@@ -2399,6 +2402,8 @@ def generate_multi_image_video(
                 motion_style=motion_style,
             )
             scene_paths.append(scene_path)
+            cleanup_file(frame_path)
+            gc.collect()
 
         narration_text = cleaned_prompt or " ".join(
             value for value in scene_prompts if value
