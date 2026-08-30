@@ -1156,9 +1156,10 @@ export default function GeneratorPage() {
           <div className="flex flex-wrap gap-4 mb-8">
             <button
               type="button"
-              onClick={() =>
-                setMode("text")
-              }
+              onClick={() => {
+                setMode("text");
+                if (duration > 8) setDuration(8);
+              }}
               className={`px-8 py-4 rounded-2xl font-semibold ${
                 mode === "text"
                   ? "bg-white text-black"
@@ -1170,9 +1171,10 @@ export default function GeneratorPage() {
 
             <button
               type="button"
-              onClick={() =>
-                setMode("image")
-              }
+              onClick={() => {
+                setMode("image");
+                if (duration > 8) setDuration(8);
+              }}
               className={`px-8 py-4 rounded-2xl font-semibold ${
                 mode === "image"
                   ? "bg-white text-black"
@@ -1697,22 +1699,21 @@ export default function GeneratorPage() {
                 onChange={(
                   event
                 ) =>
-                  setDuration(
-                    Number(
-                      event.target.value
-                    )
-                  )
-                }
-                className="w-full rounded-xl border border-white/20 bg-black px-4 py-4"
-              >
-                <option value={5}>
-                  5 seconds
-                </option>
+                  {(mode === "multi"
+                    ? [5, 8, 15, 30, 60]
+                    : [5, 8]
+                  ).map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {seconds} seconds
+                    </option>
+                  ))}
+                </select>
+              {mode === "multi" && (
+                <p className="mt-2 text-xs text-white/50">
+                  Longer videos are rendered as multiple scenes. 15, 30 and 60 seconds are available in Multiple Images mode.
+                </p>
+              )}
 
-                <option value={8}>
-                  8 seconds
-                </option>
-              </select>
             </div>
 
             <div>
