@@ -269,6 +269,8 @@ export default function GeneratorPage() {
     useState(15);
   const [sceneTransition, setSceneTransition] =
     useState<SceneTransition>("crossfade");
+  const [showPreview, setShowPreview] =
+    useState(false);
 
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -1968,6 +1970,191 @@ export default function GeneratorPage() {
                 </>
               )}
             </div>
+          </div>
+
+          {/* PREVIEW BEFORE GENERATION */}
+
+          <div className="mb-8 rounded-2xl border border-cyan-500/30 bg-cyan-950/20 p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-2xl font-bold">
+                  Preview Before Generation
+                </h3>
+                <p className="mt-1 text-sm text-white/55">
+                  Review the video plan before using a generation.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowPreview(!showPreview)}
+                className="rounded-xl bg-cyan-100 px-5 py-3 font-bold text-black hover:bg-cyan-50"
+              >
+                {showPreview ? "Hide Preview" : "Preview Video Plan"}
+              </button>
+            </div>
+
+            {showPreview && (
+              <div className="mt-6 space-y-5">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-xs uppercase tracking-wide text-white/45">Mode</p>
+                    <p className="mt-1 font-semibold">
+                      {mode === "multi"
+                        ? "Multiple Images"
+                        : mode === "image"
+                          ? "Image to Video"
+                          : "Text to Video"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-xs uppercase tracking-wide text-white/45">Duration</p>
+                    <p className="mt-1 font-semibold">
+                      {mode === "multi" ? multiSceneTotalDuration : duration} seconds
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-xs uppercase tracking-wide text-white/45">Aspect Ratio</p>
+                    <p className="mt-1 font-semibold">{aspectRatio}</p>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-xs uppercase tracking-wide text-white/45">Language</p>
+                    <p className="mt-1 font-semibold">{language}</p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                  <p className="text-xs uppercase tracking-wide text-white/45">
+                    Main Prompt
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-white/80">
+                    {prompt.trim() || "No prompt entered yet."}
+                  </p>
+                </div>
+
+                {mode === "image" && imagePreview && (
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                    <p className="mb-3 font-semibold">Selected Image</p>
+                    <img
+                      src={imagePreview}
+                      alt="Preview image"
+                      className="max-h-72 rounded-xl object-contain"
+                    />
+                  </div>
+                )}
+
+                {mode === "multi" && (
+                  <div>
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <h4 className="text-lg font-bold">
+                        Final Scene Order
+                      </h4>
+                      <span className="rounded-full border border-white/15 px-3 py-1 text-sm text-white/65">
+                        {multiImagePreviews.length} scenes
+                      </span>
+                    </div>
+
+                    {multiImagePreviews.length === 0 ? (
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-white/55">
+                        Upload 2 to 5 images to preview the scene order.
+                      </div>
+                    ) : (
+                      <div className="grid gap-4 md:grid-cols-2">
+                        {multiImagePreviews.map((preview, index) => (
+                          <div
+                            key={`preview-${preview}`}
+                            className="rounded-xl border border-white/10 bg-black/30 p-4"
+                          >
+                            <div className="flex gap-4">
+                              <img
+                                src={preview}
+                                alt={`Preview scene ${index + 1}`}
+                                className="h-24 w-24 rounded-lg object-cover"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="font-bold">
+                                    Scene {index + 1}
+                                  </p>
+                                  <span className="text-sm text-cyan-200">
+                                    {sceneDurations[index] || 1}s
+                                  </span>
+                                </div>
+                                <p className="mt-2 whitespace-pre-wrap text-sm text-white/65">
+                                  {scenePrompts[index]?.trim() ||
+                                    "No scene prompt entered."}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-sm text-white/45">Video Style</p>
+                    <p className="mt-1 font-semibold">
+                      {VIDEO_STYLES.find((item) => item.value === videoStyle)?.label || videoStyle}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-sm text-white/45">Camera Motion</p>
+                    <p className="mt-1 font-semibold">
+                      {CAMERA_MOTIONS.find((item) => item.value === cameraMotion)?.label || cameraMotion}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-sm text-white/45">Transition</p>
+                    <p className="mt-1 font-semibold">
+                      {mode === "multi"
+                        ? SCENE_TRANSITIONS.find((item) => item.value === sceneTransition)?.label || sceneTransition
+                        : "Not applicable"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-sm text-white/45">Captions</p>
+                    <p className="mt-1 font-semibold">
+                      {showCaption
+                        ? `${captionStyle} · ${captionPosition}`
+                        : "Off"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-sm text-white/45">Watermark</p>
+                    <p className="mt-1 font-semibold">
+                      {showWatermark
+                        ? `${watermark || "naijavid.ai"} · ${watermarkPosition.replaceAll("_", " ")} · ${watermarkOpacity}%`
+                        : "Off"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-sm text-white/45">Background Music</p>
+                    <p className="mt-1 font-semibold">
+                      {backgroundMusic === "none"
+                        ? "None"
+                        : `${BACKGROUND_MUSIC_OPTIONS.find((item) => item.value === backgroundMusic)?.label || backgroundMusic} · ${musicVolume}%`}
+                    </p>
+                  </div>
+                </div>
+
+                {mode === "multi" && multiSceneTotalDuration > 60 && (
+                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-red-300">
+                    Total scene duration exceeds the 60-second maximum.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ERROR */}
