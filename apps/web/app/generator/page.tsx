@@ -705,6 +705,7 @@ export default function GeneratorPage() {
 
         headers: {
           "Content-Type": "application/json",
+          ...authHeaders,
         },
 
         body: JSON.stringify({
@@ -845,11 +846,28 @@ export default function GeneratorPage() {
     }
   }
 
+  async function getBackendAuthHeaders() {
+    const currentUser = auth.currentUser;
+
+    if (!currentUser) {
+      throw new Error("You must sign in first.");
+    }
+
+    // Force-refresh only when Firebase decides the cached token is stale.
+    const idToken = await currentUser.getIdToken();
+
+    return {
+      Authorization: `Bearer ${idToken}`,
+    };
+  }
+
   // --------------------------------------------------
   // TEXT TO VIDEO
   // --------------------------------------------------
 
   async function generateTextVideo() {
+    const authHeaders = await getBackendAuthHeaders();
+
     const response = await fetch(
       `${BACKEND_URL}/generate`,
       {
@@ -918,6 +936,7 @@ export default function GeneratorPage() {
       );
     }
 
+    const authHeaders = await getBackendAuthHeaders();
     const formData = new FormData();
 
     formData.append(
@@ -1002,6 +1021,7 @@ export default function GeneratorPage() {
       `${BACKEND_URL}/generate-from-image`,
       {
         method: "POST",
+        headers: authHeaders,
         body: formData,
       }
     );
@@ -1045,6 +1065,7 @@ export default function GeneratorPage() {
       throw new Error("You can upload a maximum of 5 images.");
     }
 
+    const authHeaders = await getBackendAuthHeaders();
     const formData = new FormData();
 
     multiImageFiles.forEach((file) => {
@@ -1084,6 +1105,7 @@ export default function GeneratorPage() {
       `${BACKEND_URL}/generate-from-images`,
       {
         method: "POST",
+        headers: authHeaders,
         body: formData,
       }
     );

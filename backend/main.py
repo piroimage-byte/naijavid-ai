@@ -6,8 +6,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 import firebase_admin
-from firebase_admin import credentials, storage
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from firebase_admin import auth as firebase_auth, credentials, storage
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
@@ -114,6 +114,59 @@ def init_firebase() -> None:
             "storageBucket": FIREBASE_STORAGE_BUCKET,
         },
     )
+
+
+
+# =========================================================
+# FIREBASE AUTHENTICATION
+# =========================================================
+
+def verify_firebase_user(
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """
+    Require a valid Firebase ID token on protected generation routes.
+    The verified token, not a client-supplied UID, is the source of identity.
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing Authorization header.",
+        )
+
+    scheme, _, token = authorization.partition(" ")
+
+    if scheme.lower() != "bearer" or not token.strip():
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization must use Bearer <Firebase ID token>.",
+        )
+
+    try:
+        init_firebase()
+        decoded_token = firebase_auth.verify_id_token(
+            token.strip()
+        )
+    except Exception as exc:
+        print(
+            "FIREBASE AUTH ERROR:",
+            type(exc).__name__,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired Firebase authentication token.",
+        ) from exc
+
+    uid = decoded_token.get("uid")
+
+    if not uid:
+        raise HTTPException(
+            status_code=401,
+            detail="Firebase token does not contain a user ID.",
+        )
+
+    return decoded_token
 
 
 # =========================================================
@@ -368,6 +421,7 @@ def health():
 @app.post("/generate")
 async def generate_video(
     data: GenerateRequest,
+    firebase_user: dict = Depends(verify_firebase_user),
 ):
     local_video_path = None
 
@@ -450,6 +504,7 @@ async def generate_from_image(
     watermark_opacity: int = Form(70),
     background_music: str = Form("none"),
     music_volume: int = Form(15),
+    firebase_user: dict = Depends(verify_firebase_user),
 ):
     upload_path = None
     local_video_path = None
@@ -670,8 +725,7 @@ async def generate_from_images(
     background_music: str = Form("none"),
     music_volume: int = Form(15),
     scene_transition: str = Form("crossfade"),
-    scene_prompts: str = Form("[]"),
-    scene_durations: str = Form("[]"),
+    firebase_user: dict = Depends(verify_firebase_user),
 ):
     upload_paths: list[Path] = []
     local_video_path = None
@@ -727,53 +781,6 @@ async def generate_from_images(
                 ),
             )
 
-        try:
-            parsed_scene_prompts = json.loads(scene_prompts)
-            parsed_scene_durations = json.loads(scene_durations)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail="Scene prompts and durations must be valid JSON arrays.",
-            ) from exc
-
-        if not isinstance(parsed_scene_prompts, list):
-            raise HTTPException(status_code=422, detail="scene_prompts must be an array.")
-        if not isinstance(parsed_scene_durations, list):
-            raise HTTPException(status_code=422, detail="scene_durations must be an array.")
-
-        if parsed_scene_prompts and len(parsed_scene_prompts) != len(images):
-            raise HTTPException(
-                status_code=422,
-                detail="Scene prompt count must match image count.",
-            )
-
-        if parsed_scene_durations and len(parsed_scene_durations) != len(images):
-            raise HTTPException(
-                status_code=422,
-                detail="Scene duration count must match image count.",
-            )
-
-        if parsed_scene_durations:
-            try:
-                parsed_scene_durations = [int(value) for value in parsed_scene_durations]
-            except (TypeError, ValueError) as exc:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Every scene duration must be a whole number of seconds.",
-                ) from exc
-
-            if any(value < 1 for value in parsed_scene_durations):
-                raise HTTPException(
-                    status_code=422,
-                    detail="Every scene must be at least 1 second long.",
-                )
-
-            if sum(parsed_scene_durations) > MAX_DURATION_SECONDS:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Total scene duration cannot exceed {MAX_DURATION_SECONDS} seconds.",
-                )
-
         for upload in images:
             ext = Path(upload.filename or "").suffix.lower()
 
@@ -808,8 +815,6 @@ async def generate_from_images(
             background_music=background_music,
             music_volume=music_volume,
             scene_transition=scene_transition,
-            scene_prompts=parsed_scene_prompts or None,
-            scene_durations=parsed_scene_durations or None,
         )
 
         local_video_path = GENERATED_DIR / filename
@@ -820,12 +825,7 @@ async def generate_from_images(
             "message": "Multiple-image video generated and uploaded successfully.",
             "video_url": permanent_video_url,
             "image_count": len(upload_paths),
-            "duration": (
-                sum(parsed_scene_durations)
-                if parsed_scene_durations
-                else min(duration, MAX_DURATION_SECONDS)
-            ),
-            "scene_count": len(upload_paths),
+            "duration": min(duration, MAX_DURATION_SECONDS),
         }
 
     except HTTPException:
