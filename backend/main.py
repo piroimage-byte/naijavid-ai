@@ -6,8 +6,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 import firebase_admin
-from firebase_admin import auth as firebase_auth, credentials, storage
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from firebase_admin import auth, credentials, firestore, storage
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
@@ -46,6 +46,9 @@ app.add_middleware(
 MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
 MAX_MULTI_IMAGES = 5
 MIN_MULTI_IMAGES = 2
+FREE_DAILY_LIMIT = 3
+FREE_VIDEO_STYLES = {"cinematic", "church", "social"}
+FREE_CAMERA_MOTIONS = {"cinematic", "static"}
 
 ALLOWED_EXTENSIONS = {
     ".jpg",
@@ -116,57 +119,120 @@ def init_firebase() -> None:
     )
 
 
-
 # =========================================================
-# FIREBASE AUTHENTICATION
+# AUTH + PLAN ENFORCEMENT
 # =========================================================
 
-def verify_firebase_user(
-    authorization: str | None = Header(default=None),
-) -> dict:
-    """
-    Require a valid Firebase ID token on protected generation routes.
-    The verified token, not a client-supplied UID, is the source of identity.
-    """
-    if not authorization:
-        raise HTTPException(
-            status_code=401,
-            detail="Missing Authorization header.",
-        )
+def verify_firebase_user(authorization: str | None) -> str:
+    init_firebase()
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Firebase authentication token.")
+    token = authorization[7:].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing Firebase authentication token.")
+    try:
+        decoded = auth.verify_id_token(token)
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid or expired Firebase authentication token.") from exc
+    uid = str(decoded.get("uid") or "").strip()
+    if not uid:
+        raise HTTPException(status_code=401, detail="Firebase token does not contain a user ID.")
+    return uid
 
-    scheme, _, token = authorization.partition(" ")
 
-    if scheme.lower() != "bearer" or not token.strip():
-        raise HTTPException(
-            status_code=401,
-            detail="Authorization must use Bearer <Firebase ID token>.",
-        )
+def utc_today_key() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+
+def active_pro_from_data(data: dict) -> bool:
+    from datetime import datetime, timezone
+    if data.get("plan") != "pro" or data.get("subscriptionStatus") != "active":
+        return False
+    value = data.get("subscriptionExpiresAt")
+    if value is None:
+        return False
+    try:
+        if hasattr(value, "timestamp"):
+            expiry = value
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=timezone.utc)
+        elif isinstance(value, (int, float)):
+            expiry = datetime.fromtimestamp(value / 1000 if value > 10_000_000_000 else value, tz=timezone.utc)
+        else:
+            expiry = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=timezone.utc)
+        return expiry > datetime.now(timezone.utc)
+    except Exception:
+        return False
+
+
+def free_restriction(*, mode: str, duration: int, video_style: str = "cinematic", aspect_ratio: str = "16:9", motion_style: str = "cinematic", caption_style: str = "clean", caption_position: str = "bottom", show_watermark: bool = True, watermark: str = "naijavid.ai", watermark_position: str = "bottom_right", watermark_opacity: int = 70, background_music: str = "none") -> str | None:
+    if mode == "multi": return "Multiple-image videos require Founding Pro."
+    if duration > 8: return "Videos longer than 8 seconds require Founding Pro."
+    if video_style not in FREE_VIDEO_STYLES: return "This video style requires Founding Pro."
+    if aspect_ratio == "1:1": return "1:1 square video requires Founding Pro."
+    if motion_style not in FREE_CAMERA_MOTIONS: return "This camera motion requires Founding Pro."
+    if caption_style != "clean": return "Advanced caption styles require Founding Pro."
+    if caption_position != "bottom": return "Advanced caption positioning requires Founding Pro."
+    if background_music != "none": return "Background music requires Founding Pro."
+    if (not show_watermark or watermark != "naijavid.ai" or watermark_position != "bottom_right" or watermark_opacity != 70):
+        return "Custom watermark controls require Founding Pro."
+    return None
+
+
+def reserve_generation(uid: str, **features) -> bool:
+    init_firebase()
+    db = firestore.client()
+    user_ref = db.collection("users").document(uid)
+    transaction = db.transaction()
+    today = utc_today_key()
+
+    @firestore.transactional
+    def reserve(tx):
+        snap = user_ref.get(transaction=tx)
+        data = snap.to_dict() or {}
+        if active_pro_from_data(data):
+            return True
+        restriction = free_restriction(**features)
+        if restriction:
+            raise HTTPException(status_code=403, detail=restriction)
+        used = int(data.get("dailyGenerationCount") or 0)
+        if str(data.get("dailyGenerationDate") or "") != today:
+            used = 0
+        if used >= FREE_DAILY_LIMIT:
+            raise HTTPException(status_code=429, detail="You have reached your free daily limit. Upgrade to Founding Pro for unlimited generations.")
+        tx.set(user_ref, {
+            "dailyGenerationDate": today,
+            "dailyGenerationCount": used + 1,
+            "generationLimit": FREE_DAILY_LIMIT,
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        }, merge=True)
+        return False
+
+    return reserve(transaction)
+
+
+def rollback_free_generation(uid: str) -> None:
     try:
         init_firebase()
-        decoded_token = firebase_auth.verify_id_token(
-            token.strip()
-        )
+        db = firestore.client()
+        user_ref = db.collection("users").document(uid)
+        transaction = db.transaction()
+        today = utc_today_key()
+        @firestore.transactional
+        def rollback(tx):
+            snap = user_ref.get(transaction=tx)
+            data = snap.to_dict() or {}
+            if str(data.get("dailyGenerationDate") or "") != today:
+                return
+            used = int(data.get("dailyGenerationCount") or 0)
+            if used > 0:
+                tx.set(user_ref, {"dailyGenerationCount": used - 1, "updatedAt": firestore.SERVER_TIMESTAMP}, merge=True)
+        rollback(transaction)
     except Exception as exc:
-        print(
-            "FIREBASE AUTH ERROR:",
-            type(exc).__name__,
-            str(exc),
-        )
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or expired Firebase authentication token.",
-        ) from exc
-
-    uid = decoded_token.get("uid")
-
-    if not uid:
-        raise HTTPException(
-            status_code=401,
-            detail="Firebase token does not contain a user ID.",
-        )
-
-    return decoded_token
+        print("NaijaVid usage rollback warning:", str(exc))
 
 
 # =========================================================
@@ -292,6 +358,8 @@ class GenerateRequest(BaseModel):
         ge=0,
         le=30,
     )
+
+    video_style: str = "cinematic"
 
     @field_validator(
         "prompt",
@@ -421,9 +489,11 @@ def health():
 @app.post("/generate")
 async def generate_video(
     data: GenerateRequest,
-    firebase_user: dict = Depends(verify_firebase_user),
+    authorization: str | None = Header(default=None),
 ):
     local_video_path = None
+    uid = verify_firebase_user(authorization)
+    is_pro = reserve_generation(uid, mode="text", duration=data.duration, video_style=data.video_style, aspect_ratio=data.aspect_ratio, motion_style=data.motion_style, caption_style=data.caption_style, caption_position=data.caption_position, show_watermark=data.show_watermark, watermark=data.watermark, watermark_position=data.watermark_position, watermark_opacity=data.watermark_opacity, background_music=data.background_music)
 
     try:
         filename = generate_text_video(
@@ -469,6 +539,8 @@ async def generate_video(
         raise
 
     except Exception as exc:
+        if not is_pro:
+            rollback_free_generation(uid)
         raise HTTPException(
             status_code=500,
             detail=(
@@ -504,7 +576,8 @@ async def generate_from_image(
     watermark_opacity: int = Form(70),
     background_music: str = Form("none"),
     music_volume: int = Form(15),
-    firebase_user: dict = Depends(verify_firebase_user),
+    video_style: str = Form("cinematic"),
+    authorization: str | None = Header(default=None),
 ):
     upload_path = None
     local_video_path = None
@@ -616,6 +689,9 @@ async def generate_from_image(
                 detail="Music volume must be between 0 and 30.",
             )
 
+        uid = verify_firebase_user(authorization)
+        is_pro = reserve_generation(uid, mode="image", duration=duration, video_style=video_style, aspect_ratio=aspect_ratio, motion_style=motion_style, caption_style=caption_style, caption_position=caption_position, show_watermark=show_watermark, watermark=watermark, watermark_position=watermark_position, watermark_opacity=watermark_opacity, background_music=background_music)
+
         ext = Path(
             image.filename or ""
         ).suffix.lower()
@@ -684,6 +760,8 @@ async def generate_from_image(
         raise
 
     except Exception as exc:
+        if "is_pro" in locals() and not is_pro:
+            rollback_free_generation(uid)
         raise HTTPException(
             status_code=500,
             detail=(
@@ -724,13 +802,17 @@ async def generate_from_images(
     watermark_opacity: int = Form(70),
     background_music: str = Form("none"),
     music_volume: int = Form(15),
+    video_style: str = Form("cinematic"),
     scene_transition: str = Form("crossfade"),
-    firebase_user: dict = Depends(verify_firebase_user),
+    scene_prompts: str = Form("[]"),
+    scene_durations: str = Form("[]"),
+    authorization: str | None = Header(default=None),
 ):
     upload_paths: list[Path] = []
     local_video_path = None
 
     try:
+        uid = verify_firebase_user(authorization)
         if len(images) < MIN_MULTI_IMAGES or len(images) > MAX_MULTI_IMAGES:
             raise HTTPException(
                 status_code=422,
@@ -781,6 +863,55 @@ async def generate_from_images(
                 ),
             )
 
+        try:
+            parsed_scene_prompts = json.loads(scene_prompts)
+            parsed_scene_durations = json.loads(scene_durations)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="Scene prompts and durations must be valid JSON arrays.",
+            ) from exc
+
+        if not isinstance(parsed_scene_prompts, list):
+            raise HTTPException(status_code=422, detail="scene_prompts must be an array.")
+        if not isinstance(parsed_scene_durations, list):
+            raise HTTPException(status_code=422, detail="scene_durations must be an array.")
+
+        if parsed_scene_prompts and len(parsed_scene_prompts) != len(images):
+            raise HTTPException(
+                status_code=422,
+                detail="Scene prompt count must match image count.",
+            )
+
+        if parsed_scene_durations and len(parsed_scene_durations) != len(images):
+            raise HTTPException(
+                status_code=422,
+                detail="Scene duration count must match image count.",
+            )
+
+        if parsed_scene_durations:
+            try:
+                parsed_scene_durations = [int(value) for value in parsed_scene_durations]
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Every scene duration must be a whole number of seconds.",
+                ) from exc
+
+            if any(value < 1 for value in parsed_scene_durations):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Every scene must be at least 1 second long.",
+                )
+
+            if sum(parsed_scene_durations) > MAX_DURATION_SECONDS:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Total scene duration cannot exceed {MAX_DURATION_SECONDS} seconds.",
+                )
+
+        is_pro = reserve_generation(uid, mode="multi", duration=(sum(parsed_scene_durations) if parsed_scene_durations else duration), video_style=video_style, aspect_ratio=aspect_ratio, motion_style=motion_style, caption_style=caption_style, caption_position=caption_position, show_watermark=show_watermark, watermark=watermark, watermark_position=watermark_position, watermark_opacity=watermark_opacity, background_music=background_music)
+
         for upload in images:
             ext = Path(upload.filename or "").suffix.lower()
 
@@ -815,6 +946,8 @@ async def generate_from_images(
             background_music=background_music,
             music_volume=music_volume,
             scene_transition=scene_transition,
+            scene_prompts=parsed_scene_prompts or None,
+            scene_durations=parsed_scene_durations or None,
         )
 
         local_video_path = GENERATED_DIR / filename
@@ -825,12 +958,19 @@ async def generate_from_images(
             "message": "Multiple-image video generated and uploaded successfully.",
             "video_url": permanent_video_url,
             "image_count": len(upload_paths),
-            "duration": min(duration, MAX_DURATION_SECONDS),
+            "duration": (
+                sum(parsed_scene_durations)
+                if parsed_scene_durations
+                else min(duration, MAX_DURATION_SECONDS)
+            ),
+            "scene_count": len(upload_paths),
         }
 
     except HTTPException:
         raise
     except Exception as exc:
+        if "is_pro" in locals() and not is_pro:
+            rollback_free_generation(uid)
         raise HTTPException(
             status_code=500,
             detail=f"Multiple-image generation failed: {exc}",

@@ -2059,6 +2059,7 @@ def render_silent_image_scene(
 def combine_image_scenes(
     scene_paths: list[Path],
     duration: int,
+    scene_durations: list[float] | None = None,
     scene_transition: str = "crossfade",
     transition_duration: float = 0.35,
     audio_path: Path | None = None,
@@ -2129,23 +2130,19 @@ def combine_image_scenes(
             for scene_path in scene_paths:
                 command.extend(["-i", str(scene_path)])
 
-            # Each rendered scene is the same length. Probe by calculation:
-            # generate_multi_image_video deliberately renders each scene long
-            # enough to compensate for the overlaps created by xfade.
             scene_count = len(scene_paths)
-            scene_duration = (
-                duration + transition_duration * (scene_count - 1)
-            ) / scene_count
+            if scene_durations is None or len(scene_durations) != scene_count:
+                scene_durations = [duration / scene_count] * scene_count
 
             filter_parts: list[str] = []
             previous_label = "[0:v]"
+            cumulative_duration = 0.0
 
             for index in range(1, scene_count):
-                # Offset is measured on the growing output timeline.
-                offset = (
-                    scene_duration * index
-                    - transition_duration * index
-                )
+                # Each non-final scene is rendered slightly longer so xfade can
+                # overlap without shortening the user's requested scene timing.
+                cumulative_duration += float(scene_durations[index - 1])
+                offset = cumulative_duration
                 output_label = f"[v{index}]"
 
                 filter_parts.append(
@@ -2302,17 +2299,47 @@ def generate_multi_image_video(
     background_music: str = "none",
     music_volume: int = 15,
     scene_transition: str = "crossfade",
+    scene_prompts: list[str] | None = None,
+    scene_durations: list[int] | None = None,
 ) -> str:
-    """Create one video from 2-5 uploaded images."""
+    """Create one video from 2-5 uploaded images with optional per-scene prompts/timing."""
     if len(image_paths) < 2 or len(image_paths) > 5:
         raise ValueError("Multiple-image video requires between 2 and 5 images.")
 
     language = normalize_language(language)
-    duration = sanitize_duration(duration)
     video_width, video_height = get_video_dimensions(aspect_ratio)
     motion_style = normalize_motion_style(motion_style)
     scene_transition = normalize_scene_transition(scene_transition)
     cleaned_prompt = (prompt or "").strip()
+    scene_count = len(image_paths)
+
+    if scene_prompts is None:
+        scene_prompts = [cleaned_prompt] * scene_count
+    if len(scene_prompts) != scene_count:
+        raise ValueError("Scene prompt count must match image count.")
+    scene_prompts = [(value or "").strip() for value in scene_prompts]
+
+    if scene_durations is None:
+        base = max(1, int(duration) // scene_count)
+        scene_durations = [base] * scene_count
+        scene_durations[-1] += max(0, int(duration) - sum(scene_durations))
+    if len(scene_durations) != scene_count:
+        raise ValueError("Scene duration count must match image count.")
+
+    try:
+        scene_durations = [int(value) for value in scene_durations]
+    except Exception as exc:
+        raise ValueError("Every scene duration must be a whole number of seconds.") from exc
+
+    if any(value < 1 for value in scene_durations):
+        raise ValueError("Every scene must be at least 1 second long.")
+
+    total_duration = sum(scene_durations)
+    if total_duration > MAX_DURATION_SECONDS:
+        raise ValueError(
+            f"Total scene duration cannot exceed {MAX_DURATION_SECONDS} seconds."
+        )
+    duration = total_duration
 
     frame_paths: list[Path] = []
     scene_paths: list[Path] = []
@@ -2320,27 +2347,25 @@ def generate_multi_image_video(
 
     try:
         transition_duration = 0.35 if scene_transition != "none" else 0.0
-        scene_duration = (
-            duration + transition_duration * (len(image_paths) - 1)
-        ) / len(image_paths)
 
-        for image_path in image_paths:
+        for index, image_path in enumerate(image_paths):
+            scene_prompt = scene_prompts[index] or cleaned_prompt
+            requested_scene_duration = float(scene_durations[index])
+            render_duration = requested_scene_duration
+            if transition_duration > 0 and index < scene_count - 1:
+                render_duration += transition_duration
+
             with Image.open(image_path) as source:
                 canvas = fit_image_to_canvas(
-                    source,
-                    video_width,
-                    video_height,
+                    source, video_width, video_height
                 )
 
-            canvas = apply_language_badge(
-                canvas,
-                language,
-            )
+            canvas = apply_language_badge(canvas, language)
 
-            if cleaned_prompt:
+            if scene_prompt:
                 canvas = apply_caption(
                     canvas,
-                    cleaned_prompt,
+                    scene_prompt,
                     video_width,
                     video_height,
                     caption_style,
@@ -2358,10 +2383,7 @@ def generate_multi_image_video(
                 watermark_opacity,
             )
 
-            frame_path = save_frame_as_image(
-                canvas,
-                "_multi_frame.jpg",
-            )
+            frame_path = save_frame_as_image(canvas, "_multi_frame.jpg")
             frame_paths.append(frame_path)
 
             try:
@@ -2371,29 +2393,29 @@ def generate_multi_image_video(
 
             scene_path = render_silent_image_scene(
                 frame_path=frame_path,
-                duration=scene_duration,
+                duration=render_duration,
                 video_width=video_width,
                 video_height=video_height,
                 motion_style=motion_style,
             )
             scene_paths.append(scene_path)
 
-        if cleaned_prompt:
+        narration_text = cleaned_prompt or " ".join(
+            value for value in scene_prompts if value
+        )
+        if narration_text:
             try:
                 audio_path = generate_tts_audio(
-                    text=cleaned_prompt,
-                    language=language,
+                    text=narration_text, language=language
                 )
             except Exception as exc:
-                print(
-                    "NaijaVid Multiple-Image TTS error:",
-                    str(exc),
-                )
+                print("NaijaVid Multiple-Image TTS error:", str(exc))
                 audio_path = None
 
         return combine_image_scenes(
             scene_paths=scene_paths,
             duration=duration,
+            scene_durations=[float(value) for value in scene_durations],
             scene_transition=scene_transition,
             transition_duration=transition_duration,
             audio_path=audio_path,

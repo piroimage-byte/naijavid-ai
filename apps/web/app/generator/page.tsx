@@ -895,6 +895,7 @@ export default function GeneratorPage() {
           watermark_opacity: watermarkOpacity,
           background_music: backgroundMusic,
           music_volume: musicVolume,
+          video_style: videoStyle,
         }),
       }
     );
@@ -1016,6 +1017,10 @@ export default function GeneratorPage() {
       "music_volume",
       String(musicVolume)
     );
+    formData.append(
+      "video_style",
+      videoStyle
+    );
 
     const response = await fetch(
       `${BACKEND_URL}/generate-from-image`,
@@ -1099,6 +1104,7 @@ export default function GeneratorPage() {
     formData.append("watermark_opacity", String(watermarkOpacity));
     formData.append("background_music", backgroundMusic);
     formData.append("music_volume", String(musicVolume));
+    formData.append("video_style", videoStyle);
     formData.append("scene_transition", sceneTransition);
 
     const response = await fetch(
@@ -1216,14 +1222,7 @@ export default function GeneratorPage() {
         generatedUrl
       );
 
-      // Only count usage for Free users.
-      if (
-        access.plan === "free"
-      ) {
-        await updateGenerationAccess(
-          "increment"
-        );
-      }
+      // Render securely records Free-plan usage after authentication.
 
       setMessage(
         "Saving video to history..."
