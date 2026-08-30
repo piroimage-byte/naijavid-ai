@@ -705,7 +705,6 @@ export default function GeneratorPage() {
 
         headers: {
           "Content-Type": "application/json",
-          ...authHeaders,
         },
 
         body: JSON.stringify({
@@ -875,6 +874,7 @@ export default function GeneratorPage() {
 
         headers: {
           "Content-Type": "application/json",
+          ...authHeaders,
         },
 
         body: JSON.stringify({
