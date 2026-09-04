@@ -1472,6 +1472,12 @@ export default function GeneratorPage() {
     generationAccess?.subscriptionStatus ===
       "active";
 
+  const freeDailyLimitReached =
+    !isPro &&
+    generationAccess?.remaining !== null &&
+    generationAccess?.remaining !== undefined &&
+    generationAccess.remaining <= 0;
+
   // --------------------------------------------------
   // UI
   // --------------------------------------------------
@@ -2793,7 +2799,7 @@ export default function GeneratorPage() {
           >
             {generating
               ? "Generating..."
-              : "Generate Video"}
+              : freeDailyLimitReached ? "Daily Limit Reached" : "Generate Video"}
           </button>
         </form>
 
