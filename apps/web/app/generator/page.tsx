@@ -1477,17 +1477,17 @@ export default function GeneratorPage() {
   // --------------------------------------------------
 
   return (
-    <main className="min-h-screen bg-black text-white px-6 py-10">
+    <main className="min-h-screen bg-black text-white px-3 py-5 sm:px-4 sm:py-7 md:px-6 md:py-10 overflow-x-hidden">
       <div className="max-w-6xl mx-auto">
         {/* HEADER */}
 
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6 mb-10">
           <div>
-            <h1 className="text-4xl md:text-5xl font-bold">
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold leading-tight break-words">
               NaijaVid AI Generator
             </h1>
 
-            <p className="text-white/70 text-lg mt-3">
+            <p className="text-white/70 text-base sm:text-lg mt-3">
               Generate short videos from text or images.
             </p>
 
@@ -1499,8 +1499,8 @@ export default function GeneratorPage() {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <div className="px-5 py-3 border border-white/20 rounded-full">
+          <div className="grid w-full grid-cols-1 gap-3 sm:flex sm:w-auto sm:flex-wrap">
+            <div className="w-full sm:w-auto px-4 sm:px-5 py-3 border border-white/20 rounded-2xl sm:rounded-full text-center">
               Current plan:{" "}
               <strong
                 className={
@@ -1522,7 +1522,7 @@ export default function GeneratorPage() {
                   "/history"
                 )
               }
-              className="px-5 py-3 border border-white/20 rounded-full font-semibold hover:bg-white/10"
+              className="w-full sm:w-auto px-4 sm:px-5 py-3 border border-white/20 rounded-2xl sm:rounded-full font-semibold hover:bg-white/10"
             >
               View History
             </button>
@@ -1532,7 +1532,7 @@ export default function GeneratorPage() {
               onClick={
                 handleSignOut
               }
-              className="px-5 py-3 border border-red-500/40 text-red-300 rounded-full font-semibold hover:bg-red-500/10"
+              className="w-full sm:w-auto px-4 sm:px-5 py-3 border border-red-500/40 text-red-300 rounded-2xl sm:rounded-full font-semibold hover:bg-red-500/10"
             >
               Sign Out
             </button>
@@ -1542,7 +1542,7 @@ export default function GeneratorPage() {
         {/* PLAN */}
 
         {isPro ? (
-          <section className="mb-8 rounded-3xl border border-green-500/40 bg-green-950/40 p-7">
+          <section className="mb-6 sm:mb-8 rounded-2xl sm:rounded-3xl border border-green-500/40 bg-green-950/40 p-4 sm:p-7">
             <h2 className="text-2xl font-bold text-green-400 mb-3">
               Founding Pro
             </h2>
@@ -1562,7 +1562,7 @@ export default function GeneratorPage() {
             )}
           </section>
         ) : (
-          <section className="mb-8 rounded-3xl border border-blue-500/40 bg-blue-950/30 p-7">
+          <section className="mb-6 sm:mb-8 rounded-2xl sm:rounded-3xl border border-blue-500/40 bg-blue-950/30 p-4 sm:p-7">
             <h2 className="text-2xl font-bold mb-3">
               Free Plan
             </h2>
@@ -1597,7 +1597,7 @@ export default function GeneratorPage() {
                   "/pricing"
                 )
               }
-              className="px-6 py-3 bg-white text-black rounded-xl font-semibold hover:bg-gray-200"
+              className="w-full sm:w-auto px-5 sm:px-6 py-3 bg-white text-black rounded-xl font-semibold hover:bg-gray-200 text-center"
             >
               Upgrade to Founding Pro ₦5,000/month
             </button>
@@ -1610,18 +1610,18 @@ export default function GeneratorPage() {
           onSubmit={
             handleSubmit
           }
-          className="rounded-3xl border border-blue-500/30 bg-gradient-to-b from-blue-950/70 to-indigo-950/70 p-6 md:p-8"
+          className="rounded-2xl sm:rounded-3xl border border-blue-500/30 bg-gradient-to-b from-blue-950/70 to-indigo-950/70 p-3 sm:p-5 md:p-8 overflow-hidden"
         >
           {/* MODE */}
 
-          <div className="flex flex-wrap gap-4 mb-8">
+          <div className="grid grid-cols-1 gap-3 mb-6 sm:grid-cols-2 lg:grid-cols-3 sm:mb-8">
             <button
               type="button"
               onClick={() => {
                 setMode("text");
                 if (duration > 8) setDuration(8);
               }}
-              className={`px-8 py-4 rounded-2xl font-semibold ${
+              className={`w-full min-h-14 px-4 sm:px-6 lg:px-8 py-4 rounded-2xl font-semibold ${
                 mode === "text"
                   ? "bg-white text-black"
                   : "border border-white/20 text-white"
@@ -1636,7 +1636,7 @@ export default function GeneratorPage() {
                 setMode("image");
                 if (duration > 8) setDuration(8);
               }}
-              className={`px-8 py-4 rounded-2xl font-semibold ${
+              className={`w-full min-h-14 px-4 sm:px-6 lg:px-8 py-4 rounded-2xl font-semibold ${
                 mode === "image"
                   ? "bg-white text-black"
                   : "border border-white/20 text-white"
@@ -1654,7 +1654,7 @@ export default function GeneratorPage() {
                 }
                 setMode("multi");
               }}
-              className={`px-8 py-4 rounded-2xl font-semibold ${
+              className={`w-full min-h-14 px-4 sm:px-6 lg:px-8 py-4 rounded-2xl font-semibold ${
                 mode === "multi"
                   ? "bg-white text-black"
                   : "border border-white/20 text-white"
@@ -1671,7 +1671,7 @@ export default function GeneratorPage() {
 
           {/* QUICK TEMPLATES */}
 
-          <div className="mb-8 rounded-2xl border border-amber-400/30 bg-amber-950/20 p-5">
+          <div className="mb-6 sm:mb-8 rounded-2xl border border-amber-400/30 bg-amber-950/20 p-4 sm:p-5">
             <div className="flex flex-col gap-2">
               <h3 className="text-2xl font-bold">
                 Quick Templates
@@ -1681,7 +1681,7 @@ export default function GeneratorPage() {
               </p>
             </div>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-4 sm:mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {VIDEO_TEMPLATES.map((template) => {
                 const selected = selectedTemplate === template.id;
 
@@ -1752,7 +1752,7 @@ export default function GeneratorPage() {
                 onChange={
                   handleImageChange
                 }
-                className="block w-full rounded-xl border border-white/20 bg-black/40 p-4"
+                className="block w-full min-w-0 rounded-xl border border-white/20 bg-black/40 p-3 sm:p-4 text-sm sm:text-base"
               />
 
               {imagePreview && (
@@ -1761,7 +1761,7 @@ export default function GeneratorPage() {
                     imagePreview
                   }
                   alt="Selected preview"
-                  className="mt-4 max-h-80 rounded-xl border border-white/10"
+                  className="mt-4 max-h-80 w-full rounded-xl border border-white/10 object-contain"
                 />
               )}
             </div>
@@ -1778,7 +1778,7 @@ export default function GeneratorPage() {
                 accept="image/*"
                 multiple
                 onChange={handleMultiImageChange}
-                className="block w-full rounded-xl border border-white/20 bg-black/40 p-4"
+                className="block w-full min-w-0 rounded-xl border border-white/20 bg-black/40 p-3 sm:p-4 text-sm sm:text-base"
               />
 
               <p className="mt-2 text-sm text-white/50">
@@ -1790,9 +1790,9 @@ export default function GeneratorPage() {
                   {multiImagePreviews.map((preview, index) => (
                     <div
                       key={preview}
-                      className="rounded-2xl border border-white/10 bg-black/30 p-4"
+                      className="rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4 overflow-hidden"
                     >
-                      <div className="grid gap-4 md:grid-cols-[160px_1fr]">
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
                         <div>
                           <img
                             src={preview}
@@ -1863,7 +1863,7 @@ export default function GeneratorPage() {
                                   next[index] = Math.max(1, Number(event.target.value) || 1);
                                   setSceneDurations(next);
                                 }}
-                                className="w-28 rounded-xl border border-white/20 bg-black px-4 py-3"
+                                className="w-24 sm:w-28 rounded-xl border border-white/20 bg-black px-3 sm:px-4 py-3"
                               />
                               <span className="text-sm text-white/60">seconds</span>
                             </div>
@@ -1890,7 +1890,7 @@ export default function GeneratorPage() {
           )}
 
           {mode === "multi" && (
-            <div className="mb-8 rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div className="mb-6 sm:mb-8 rounded-2xl border border-white/10 bg-black/20 p-4 sm:p-5">
               <h3 className="text-2xl font-bold">
                 Scene Transition
               </h3>
@@ -1899,7 +1899,7 @@ export default function GeneratorPage() {
                 Choose how each uploaded image changes into the next scene.
               </p>
 
-              <div className="mt-5 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="mt-4 sm:mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {SCENE_TRANSITIONS.map((option) => {
                   const selected =
                     sceneTransition === option.value;
@@ -1940,7 +1940,7 @@ export default function GeneratorPage() {
           {/* PROMPT */}
 
           <div className="mb-8">
-            <label className="block text-2xl font-bold mb-4">
+            <label className="block text-xl sm:text-2xl font-bold mb-3 sm:mb-4">
               Prompt
             </label>
 
@@ -1964,7 +1964,7 @@ export default function GeneratorPage() {
           {/* VIDEO STYLE */}
 
           <div className="mb-8">
-            <label className="block text-2xl font-bold mb-4">
+            <label className="block text-xl sm:text-2xl font-bold mb-3 sm:mb-4">
               Video Style
             </label>
 
@@ -2033,7 +2033,7 @@ export default function GeneratorPage() {
           {/* ASPECT RATIO */}
 
           <div className="mb-8">
-            <label className="block text-2xl font-bold mb-4">
+            <label className="block text-xl sm:text-2xl font-bold mb-3 sm:mb-4">
               Aspect Ratio
             </label>
 
@@ -2089,7 +2089,7 @@ export default function GeneratorPage() {
           {/* CAMERA MOTION */}
 
           <div className="mb-8">
-            <label className="block text-2xl font-bold mb-4">
+            <label className="block text-xl sm:text-2xl font-bold mb-3 sm:mb-4">
               Camera Motion
             </label>
 
@@ -2142,7 +2142,7 @@ export default function GeneratorPage() {
 
           {/* CAPTION CONTROLS */}
 
-          <div className="mb-8 rounded-2xl border border-white/10 bg-black/20 p-5">
+          <div className="mb-6 sm:mb-8 rounded-2xl border border-white/10 bg-black/20 p-4 sm:p-5">
             <div className="flex flex-col gap-4">
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -2223,7 +2223,7 @@ export default function GeneratorPage() {
                       Caption Position
                     </label>
 
-                    <div className="flex flex-wrap gap-3">
+                    <div className="grid w-full grid-cols-1 gap-3 sm:flex sm:w-auto sm:flex-wrap">
                       {(
                         [
                           ["top", "Top"],
@@ -2263,7 +2263,7 @@ export default function GeneratorPage() {
 
           {/* BACKGROUND MUSIC */}
 
-          <div className="mb-8 rounded-2xl border border-white/10 bg-black/20 p-5">
+          <div className="mb-6 sm:mb-8 rounded-2xl border border-white/10 bg-black/20 p-4 sm:p-5">
             <h3 className="text-2xl font-bold">
               Background Music
             </h3>
@@ -2271,7 +2271,7 @@ export default function GeneratorPage() {
               Add a low-volume music bed underneath the narration.
             </p>
 
-            <div className="mt-5 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="mt-4 sm:mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {BACKGROUND_MUSIC_OPTIONS.map((option) => {
                 const selected =
                   backgroundMusic === option.value;
@@ -2433,7 +2433,7 @@ export default function GeneratorPage() {
 
           {/* WATERMARK CONTROLS */}
 
-          <div className="mb-8 rounded-2xl border border-white/10 bg-black/20 p-5">
+          <div className="mb-6 sm:mb-8 rounded-2xl border border-white/10 bg-black/20 p-4 sm:p-5">
             <div className="flex flex-col gap-5">
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -2668,7 +2668,7 @@ export default function GeneratorPage() {
                   </div>
                 )}
 
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <div className="rounded-xl border border-white/10 bg-black/30 p-4">
                     <p className="text-sm text-white/45">Video Style</p>
                     <p className="mt-1 font-semibold">
@@ -2789,7 +2789,7 @@ export default function GeneratorPage() {
           <button
             type="submit"
             disabled={generating}
-            className="w-full rounded-2xl bg-white px-6 py-5 text-xl font-bold text-black hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full min-h-14 rounded-2xl bg-white px-4 sm:px-6 py-4 sm:py-5 text-lg sm:text-xl font-bold text-black hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {generating
               ? "Generating..."
@@ -2800,24 +2800,24 @@ export default function GeneratorPage() {
         {/* RESULT */}
 
         {videoUrl && (
-          <section className="mt-10">
-            <h2 className="text-3xl font-bold mb-5">
+          <section className="mt-8 sm:mt-10">
+            <h2 className="text-2xl sm:text-3xl font-bold mb-4 sm:mb-5">
               Generated Video
             </h2>
 
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div className="rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 p-3 sm:p-5">
               <video
                 src={videoUrl}
                 controls
                 className="w-full rounded-2xl bg-black"
               />
 
-              <div className="flex flex-wrap gap-3 mt-5">
+              <div className="grid grid-cols-1 gap-3 mt-4 sm:flex sm:flex-wrap sm:mt-5">
                 <a
                   href={videoUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-5 py-3 rounded-xl border border-white/20 hover:bg-white/10"
+                  className="w-full sm:w-auto px-5 py-3 rounded-xl border border-white/20 hover:bg-white/10 text-center"
                 >
                   Open Video
                 </a>
@@ -2825,7 +2825,7 @@ export default function GeneratorPage() {
                 <a
                   href={videoUrl}
                   download
-                  className="px-5 py-3 rounded-xl bg-white text-black font-semibold hover:bg-gray-200"
+                  className="w-full sm:w-auto px-5 py-3 rounded-xl bg-white text-black font-semibold hover:bg-gray-200 text-center"
                 >
                   Download
                 </a>
@@ -2837,7 +2837,7 @@ export default function GeneratorPage() {
                       "/history"
                     )
                   }
-                  className="px-5 py-3 rounded-xl border border-white/20 hover:bg-white/10"
+                  className="w-full sm:w-auto px-5 py-3 rounded-xl border border-white/20 hover:bg-white/10 text-center"
                 >
                   View History
                 </button>
