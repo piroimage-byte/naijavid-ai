@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 import {
   onAuthStateChanged,
@@ -373,7 +373,6 @@ const BACKEND_URL =
 
 export default function GeneratorPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   // AUTH
   const [user, setUser] = useState<User | null>(null);
@@ -483,6 +482,8 @@ export default function GeneratorPage() {
   // --------------------------------------------------
 
   useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+
     if (searchParams.get("reuse") !== "1") {
       return;
     }
@@ -611,7 +612,7 @@ export default function GeneratorPage() {
         ? "Saved settings loaded. Please upload the image file(s) again before generating."
         : "Saved settings loaded from Video History."
     );
-  }, [searchParams]);
+  }, []);
 
   // --------------------------------------------------
   // LOAD PLAN / ACCESS
