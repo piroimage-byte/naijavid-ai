@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   onAuthStateChanged,
@@ -373,6 +373,7 @@ const BACKEND_URL =
 
 export default function GeneratorPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // AUTH
   const [user, setUser] = useState<User | null>(null);
@@ -476,6 +477,141 @@ export default function GeneratorPage() {
 
     return () => unsubscribe();
   }, [router]);
+
+  // --------------------------------------------------
+  // REUSE SETTINGS FROM VIDEO HISTORY
+  // --------------------------------------------------
+
+  useEffect(() => {
+    if (searchParams.get("reuse") !== "1") {
+      return;
+    }
+
+    const parseBoolean = (value: string | null, fallback: boolean) => {
+      if (value === null) return fallback;
+      return value === "true";
+    };
+
+    const parsedMode = searchParams.get("mode");
+    if (parsedMode === "text" || parsedMode === "image" || parsedMode === "multi") {
+      setMode(parsedMode);
+    }
+
+    const savedPrompt = searchParams.get("prompt");
+    if (savedPrompt !== null) setPrompt(savedPrompt);
+
+    const savedLanguage = searchParams.get("language");
+    if (savedLanguage) setLanguage(savedLanguage);
+
+    const savedDuration = Number(searchParams.get("duration"));
+    if (Number.isFinite(savedDuration) && savedDuration > 0) {
+      setDuration(Math.min(savedDuration, 60));
+    }
+
+    const savedWatermark = searchParams.get("watermark");
+    if (savedWatermark !== null) setWatermark(savedWatermark);
+
+    const savedAspectRatio = searchParams.get("aspectRatio");
+    if (
+      savedAspectRatio === "16:9" ||
+      savedAspectRatio === "9:16" ||
+      savedAspectRatio === "1:1"
+    ) {
+      setAspectRatio(savedAspectRatio);
+    }
+
+    const savedCameraMotion = searchParams.get("cameraMotion");
+    if (
+      savedCameraMotion === "cinematic" ||
+      savedCameraMotion === "zoom_in" ||
+      savedCameraMotion === "pan_left" ||
+      savedCameraMotion === "pan_right" ||
+      savedCameraMotion === "static"
+    ) {
+      setCameraMotion(savedCameraMotion);
+    }
+
+    setShowCaption(
+      parseBoolean(searchParams.get("showCaption"), true)
+    );
+
+    const savedCaptionStyle = searchParams.get("captionStyle");
+    if (
+      savedCaptionStyle === "clean" ||
+      savedCaptionStyle === "bold" ||
+      savedCaptionStyle === "subtitle"
+    ) {
+      setCaptionStyle(savedCaptionStyle);
+    }
+
+    const savedCaptionPosition = searchParams.get("captionPosition");
+    if (
+      savedCaptionPosition === "top" ||
+      savedCaptionPosition === "center" ||
+      savedCaptionPosition === "bottom"
+    ) {
+      setCaptionPosition(savedCaptionPosition);
+    }
+
+    setShowWatermark(
+      parseBoolean(searchParams.get("showWatermark"), true)
+    );
+
+    const savedWatermarkPosition = searchParams.get("watermarkPosition");
+    if (
+      savedWatermarkPosition === "top_left" ||
+      savedWatermarkPosition === "top_right" ||
+      savedWatermarkPosition === "bottom_left" ||
+      savedWatermarkPosition === "bottom_right"
+    ) {
+      setWatermarkPosition(savedWatermarkPosition);
+    }
+
+    const savedWatermarkOpacity = Number(searchParams.get("watermarkOpacity"));
+    if (Number.isFinite(savedWatermarkOpacity) && savedWatermarkOpacity >= 0) {
+      setWatermarkOpacity(Math.min(100, savedWatermarkOpacity));
+    }
+
+    const savedBackgroundMusic = searchParams.get("backgroundMusic");
+    if (
+      savedBackgroundMusic === "none" ||
+      savedBackgroundMusic === "worship" ||
+      savedBackgroundMusic === "cinematic" ||
+      savedBackgroundMusic === "corporate" ||
+      savedBackgroundMusic === "documentary" ||
+      savedBackgroundMusic === "emotional" ||
+      savedBackgroundMusic === "upbeat"
+    ) {
+      setBackgroundMusic(savedBackgroundMusic);
+    }
+
+    const savedMusicVolume = Number(searchParams.get("musicVolume"));
+    if (Number.isFinite(savedMusicVolume) && savedMusicVolume >= 0) {
+      setMusicVolume(Math.min(30, savedMusicVolume));
+    }
+
+    const savedTransition = searchParams.get("sceneTransition");
+    if (
+      savedTransition === "none" ||
+      savedTransition === "fade" ||
+      savedTransition === "crossfade" ||
+      savedTransition === "slide_left" ||
+      savedTransition === "slide_right" ||
+      savedTransition === "zoom"
+    ) {
+      setSceneTransition(savedTransition);
+    }
+
+    setSelectedTemplate(null);
+    setVideoUrl("");
+    setShowPreview(false);
+    setError("");
+    setMessage(
+      parsedMode === "image" || parsedMode === "multi"
+        ? "Saved settings loaded. Please upload the image file(s) again before generating."
+        : "Saved settings loaded from Video History."
+    );
+  }, [searchParams]);
 
   // --------------------------------------------------
   // LOAD PLAN / ACCESS
