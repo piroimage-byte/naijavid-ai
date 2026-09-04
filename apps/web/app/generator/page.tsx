@@ -623,15 +623,14 @@ export default function GeneratorPage() {
       return;
     }
 
-    // Capture UID outside nested async function.
-    // This fixes the Vercel:
-    // "'user' is possibly 'null'" TypeScript error.
-    const userId = user.uid;
+    const currentUser = user;
 
     async function loadAccess() {
       try {
         setAccessLoading(true);
         setError("");
+
+        const idToken = await currentUser.getIdToken();
 
         const response = await fetch(
           "/api/generation-access",
@@ -640,10 +639,10 @@ export default function GeneratorPage() {
 
             headers: {
               "Content-Type": "application/json",
+              Authorization: `Bearer ${idToken}`,
             },
 
             body: JSON.stringify({
-              userId,
               action: "check",
             }),
           }
@@ -852,6 +851,8 @@ export default function GeneratorPage() {
       );
     }
 
+    const idToken = await currentUser.getIdToken();
+
     const response = await fetch(
       "/api/generation-access",
       {
@@ -859,10 +860,10 @@ export default function GeneratorPage() {
 
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
         },
 
         body: JSON.stringify({
-          userId: currentUser.uid,
           action,
           features: currentFeatureRequest(),
         }),

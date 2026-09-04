@@ -5,6 +5,10 @@ import {
 } from "firebase-admin/app";
 
 import {
+  getAuth,
+} from "firebase-admin/auth";
+
+import {
   getFirestore,
 } from "firebase-admin/firestore";
 
@@ -63,24 +67,38 @@ function getServiceAccount(): FirebaseServiceAccount {
   }
 }
 
-export function getAdminDb() {
-  if (!getApps().length) {
-    const serviceAccount =
-      getServiceAccount();
+function getAdminApp() {
+  const existingApps = getApps();
 
-    initializeApp({
-      credential: cert({
-        projectId:
-          serviceAccount.project_id,
-
-        clientEmail:
-          serviceAccount.client_email,
-
-        privateKey:
-          serviceAccount.private_key,
-      }),
-    });
+  if (existingApps.length > 0) {
+    return existingApps[0];
   }
 
-  return getFirestore();
+  const serviceAccount =
+    getServiceAccount();
+
+  return initializeApp({
+    credential: cert({
+      projectId:
+        serviceAccount.project_id,
+
+      clientEmail:
+        serviceAccount.client_email,
+
+      privateKey:
+        serviceAccount.private_key,
+    }),
+  });
+}
+
+export function getAdminDb() {
+  return getFirestore(
+    getAdminApp()
+  );
+}
+
+export function getAdminAuth() {
+  return getAuth(
+    getAdminApp()
+  );
 }

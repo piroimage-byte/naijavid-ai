@@ -4,7 +4,7 @@ import {
   Timestamp,
 } from "firebase-admin/firestore";
 
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 
 const FREE_DAILY_LIMIT = 3;
 
@@ -180,30 +180,67 @@ export async function POST(
   request: NextRequest
 ) {
   try {
+    const authorization =
+      request.headers.get("authorization") || "";
+
+    if (!authorization.startsWith("Bearer ")) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Authentication required.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    const idToken =
+      authorization.slice("Bearer ".length).trim();
+
+    if (!idToken) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Authentication required.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    let userId = "";
+
+    try {
+      const decodedToken =
+        await getAdminAuth().verifyIdToken(idToken);
+
+      userId = decodedToken.uid;
+    } catch (authError) {
+      console.error(
+        "GENERATION ACCESS AUTH ERROR:",
+        authError
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid or expired authentication token.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
     const body =
       await request.json();
-
-    const userId =
-      typeof body.userId === "string"
-        ? body.userId.trim()
-        : "";
 
     const action =
       typeof body.action === "string"
         ? body.action.trim()
         : "check";
-
-    if (!userId) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "userId is required.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
 
     if (
       action !== "check" &&
