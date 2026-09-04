@@ -150,31 +150,10 @@ export default function HistoryPage() {
   }
 
   return (
-    <main
-      style={{
-        maxWidth: 1200,
-        margin: "0 auto",
-        padding: "32px 20px 60px",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 16,
-          alignItems: "center",
-          marginBottom: 24,
-          flexWrap: "wrap",
-        }}
-      >
+    <main className="mx-auto min-h-screen w-full max-w-7xl overflow-x-hidden px-3 py-5 pb-14 sm:px-5 sm:py-8 sm:pb-16">
+      <div className="mb-6 flex flex-col gap-4 sm:mb-7 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1
-            style={{
-              fontSize: 40,
-              fontWeight: 800,
-              margin: 0,
-            }}
-          >
+          <h1 className="m-0 text-3xl font-extrabold leading-tight sm:text-4xl md:text-[40px]">
             Video History
           </h1>
 
@@ -188,23 +167,10 @@ export default function HistoryPage() {
           </p>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
+        <div className="grid w-full grid-cols-1 gap-3 sm:flex sm:w-auto sm:flex-wrap">
           <Link
             href="/generator"
-            style={{
-              padding: "12px 16px",
-              border: "1px solid #444",
-              borderRadius: 12,
-              textDecoration: "none",
-              color: "#111",
-              fontWeight: 700,
-            }}
+            className="w-full rounded-xl border border-neutral-600 px-4 py-3 text-center font-bold text-neutral-900 no-underline sm:w-auto"
           >
             Back to Generator
           </Link>
@@ -214,14 +180,7 @@ export default function HistoryPage() {
               type="button"
               onClick={handleClearAll}
               disabled={working}
-              style={{
-                padding: "12px 16px",
-                border: "none",
-                borderRadius: 12,
-                cursor: working ? "not-allowed" : "pointer",
-                fontWeight: 700,
-                opacity: working ? 0.6 : 1,
-              }}
+              className="w-full rounded-xl px-4 py-3 font-bold disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
               {working ? "Working..." : "Clear All"}
             </button>
@@ -286,14 +245,7 @@ export default function HistoryPage() {
       )}
 
       {user && !loading && hasItems && (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              "repeat(auto-fit, minmax(320px, 1fr))",
-            gap: 20,
-          }}
-        >
+        <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-2">
           {items.map((item) => {
             const videoUrl =
               typeof item.videoUrl === "string"
@@ -305,13 +257,7 @@ export default function HistoryPage() {
             return (
               <div
                 key={item.id}
-                style={{
-                  border: "1px solid #2b2b2b",
-                  borderRadius: 18,
-                  padding: 16,
-                  background: "#0f0f10",
-                  color: "#fff",
-                }}
+                className="min-w-0 overflow-hidden rounded-2xl border border-neutral-800 bg-[#0f0f10] p-3 text-white sm:p-4"
               >
                 {hasVideo ? (
                   <video
@@ -319,28 +265,11 @@ export default function HistoryPage() {
                     controls
                     playsInline
                     preload="metadata"
-                    style={{
-                      width: "100%",
-                      borderRadius: 12,
-                      background: "#000",
-                      marginBottom: 14,
-                    }}
+                    className="mb-3.5 block h-auto w-full max-w-full rounded-xl bg-black"
                   />
                 ) : (
                   <div
-                    style={{
-                      width: "100%",
-                      minHeight: 180,
-                      borderRadius: 12,
-                      background: "#1f1f1f",
-                      marginBottom: 14,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "#aaa",
-                      textAlign: "center",
-                      padding: 20,
-                    }}
+                    className="mb-3.5 flex min-h-40 w-full items-center justify-center rounded-xl bg-neutral-800 p-4 text-center text-neutral-400 sm:min-h-44 sm:p-5"
                   >
                     Video unavailable
                   </div>
@@ -382,27 +311,14 @@ export default function HistoryPage() {
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 10,
-                    marginTop: 16,
-                    flexWrap: "wrap",
-                  }}
-                >
+                <div className="mt-4 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:gap-2.5">
                   {hasVideo && (
                     <>
                       <a
                         href={videoUrl}
                         target="_blank"
                         rel="noreferrer"
-                        style={{
-                          padding: "10px 14px",
-                          border: "1px solid #444",
-                          borderRadius: 12,
-                          textDecoration: "none",
-                          color: "#fff",
-                        }}
+                        className="w-full rounded-xl border border-neutral-600 px-4 py-3 text-center text-white no-underline sm:w-auto"
                       >
                         Open
                       </a>
@@ -410,13 +326,7 @@ export default function HistoryPage() {
                       <a
                         href={videoUrl}
                         download
-                        style={{
-                          padding: "10px 14px",
-                          border: "1px solid #444",
-                          borderRadius: 12,
-                          textDecoration: "none",
-                          color: "#fff",
-                        }}
+                        className="w-full rounded-xl border border-neutral-600 px-4 py-3 text-center text-white no-underline sm:w-auto"
                       >
                         Download
                       </a>
@@ -427,16 +337,7 @@ export default function HistoryPage() {
                     type="button"
                     onClick={() => handleReuse(item)}
                     disabled={working}
-                    style={{
-                      padding: "10px 14px",
-                      border: "1px solid #444",
-                      borderRadius: 12,
-                      cursor: working ? "not-allowed" : "pointer",
-                      fontWeight: 700,
-                      opacity: working ? 0.6 : 1,
-                      background: "transparent",
-                      color: "#fff",
-                    }}
+                    className="w-full rounded-xl border border-neutral-600 bg-transparent px-4 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                   >
                     Reuse Settings
                   </button>
@@ -445,14 +346,7 @@ export default function HistoryPage() {
                     type="button"
                     onClick={() => handleDelete(item.id)}
                     disabled={working}
-                    style={{
-                      padding: "10px 14px",
-                      border: "none",
-                      borderRadius: 12,
-                      cursor: working ? "not-allowed" : "pointer",
-                      fontWeight: 700,
-                      opacity: working ? 0.6 : 1,
-                    }}
+                    className="w-full rounded-xl px-4 py-3 font-bold disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                   >
                     Delete
                   </button>
