@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { onAuthStateChanged, User } from "firebase/auth";
 
 import { auth } from "@/lib/firebase";
@@ -18,6 +19,7 @@ function formatDate(value: number) {
 }
 
 export default function HistoryPage() {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [items, setItems] = useState<VideoHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,6 +115,38 @@ export default function HistoryPage() {
     } finally {
       setWorking(false);
     }
+  }
+
+  function handleReuse(item: VideoHistoryItem) {
+    const params = new URLSearchParams();
+
+    const add = (key: string, value: unknown) => {
+      if (value !== undefined && value !== null && String(value) !== "") {
+        params.set(key, String(value));
+      }
+    };
+
+    add("reuse", "1");
+    add("prompt", item.prompt);
+    add("mode", item.mode);
+    add("language", item.language);
+    add("duration", item.duration);
+    add("watermark", item.watermark);
+
+    const saved = item as VideoHistoryItem & Record<string, unknown>;
+    add("aspectRatio", saved.aspectRatio);
+    add("cameraMotion", saved.cameraMotion);
+    add("showCaption", saved.showCaption);
+    add("captionStyle", saved.captionStyle);
+    add("captionPosition", saved.captionPosition);
+    add("showWatermark", saved.showWatermark);
+    add("watermarkPosition", saved.watermarkPosition);
+    add("watermarkOpacity", saved.watermarkOpacity);
+    add("backgroundMusic", saved.backgroundMusic);
+    add("musicVolume", saved.musicVolume);
+    add("sceneTransition", saved.sceneTransition);
+
+    router.push(`/generator?${params.toString()}`);
   }
 
   return (
@@ -388,6 +422,24 @@ export default function HistoryPage() {
                       </a>
                     </>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={() => handleReuse(item)}
+                    disabled={working}
+                    style={{
+                      padding: "10px 14px",
+                      border: "1px solid #444",
+                      borderRadius: 12,
+                      cursor: working ? "not-allowed" : "pointer",
+                      fontWeight: 700,
+                      opacity: working ? 0.6 : 1,
+                      background: "transparent",
+                      color: "#fff",
+                    }}
+                  >
+                    Reuse Settings
+                  </button>
 
                   <button
                     type="button"
