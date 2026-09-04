@@ -4,6 +4,8 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: process.cwd(),
   },
+
+  serverExternalPackages: [],
 };
 
 export default nextConfig;
