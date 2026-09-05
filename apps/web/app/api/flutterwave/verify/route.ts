@@ -15,6 +15,7 @@ import {
 
 const PRO_AMOUNT = 5000;
 const PRO_CURRENCY = "NGN";
+const SUBSCRIPTION_DAYS = 30;
 
 type FlutterwaveVerificationResponse = {
   status?: string;
@@ -48,6 +49,80 @@ type FlutterwaveVerificationResponse = {
     created_at?: string;
   };
 };
+
+// ========================================================
+// GET DATE FROM FIRESTORE VALUE
+// ========================================================
+
+function getExpiryDate(
+  value: unknown
+): Date | null {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Timestamp) {
+    return value.toDate();
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toDate" in value &&
+    typeof (
+      value as {
+        toDate?: unknown;
+      }
+    ).toDate === "function"
+  ) {
+    try {
+      return (
+        value as {
+          toDate: () => Date;
+        }
+      ).toDate();
+    } catch {
+      return null;
+    }
+  }
+
+  if (
+    typeof value === "string" ||
+    typeof value === "number"
+  ) {
+    const parsed =
+      new Date(value);
+
+    if (
+      !Number.isNaN(
+        parsed.getTime()
+      )
+    ) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+// ========================================================
+// ADD SUBSCRIPTION DAYS
+// ========================================================
+
+function addSubscriptionDays(
+  date: Date,
+  days: number
+) {
+  const result =
+    new Date(date);
+
+  result.setUTCDate(
+    result.getUTCDate() +
+      days
+  );
+
+  return result;
+}
 
 // ========================================================
 // EXTRACT USER ID FROM TX REF
@@ -327,7 +402,7 @@ export async function POST(
     }
 
     // ====================================================
-    // VERIFY PAYMENT STATUS
+    // PAYMENT STATUS
     // ====================================================
 
     if (
@@ -351,7 +426,7 @@ export async function POST(
     }
 
     // ====================================================
-    // VERIFY CURRENCY
+    // CURRENCY
     // ====================================================
 
     if (
@@ -372,7 +447,7 @@ export async function POST(
     }
 
     // ====================================================
-    // VERIFY AMOUNT
+    // AMOUNT
     // ====================================================
 
     const paidAmount =
@@ -404,7 +479,7 @@ export async function POST(
     }
 
     // ====================================================
-    // VERIFY TX REF
+    // TX REF
     // ====================================================
 
     const verifiedTxRef =
@@ -445,7 +520,7 @@ export async function POST(
     }
 
     // ====================================================
-    // VERIFY PLAN
+    // PLAN
     // ====================================================
 
     const verifiedPlan =
@@ -473,7 +548,7 @@ export async function POST(
     }
 
     // ====================================================
-    // DETERMINE PAYMENT OWNER
+    // PAYMENT OWNER
     // ====================================================
 
     const metaUserId =
@@ -487,8 +562,6 @@ export async function POST(
       getUserIdFromTxRef(
         verifiedTxRef
       );
-
-    // Both values should agree when both are present.
 
     if (
       metaUserId &&
@@ -516,7 +589,6 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-
           error:
             "Unable to determine the user associated with this payment.",
         },
@@ -527,7 +599,7 @@ export async function POST(
     }
 
     // ====================================================
-    // CRITICAL OWNERSHIP CHECK
+    // AUTHENTICATED OWNERSHIP
     // ====================================================
 
     if (
@@ -556,7 +628,7 @@ export async function POST(
     }
 
     // ====================================================
-    // FIRESTORE
+    // FIRESTORE REFERENCES
     // ====================================================
 
     const db =
@@ -584,183 +656,311 @@ export async function POST(
           paymentId
         );
 
-    // ====================================================
-    // SUBSCRIPTION DATES
-    // ====================================================
-
     const now =
       new Date();
-
-    const expiresAt =
-      new Date(now);
-
-    expiresAt.setDate(
-      expiresAt.getDate() +
-        30
-    );
 
     // ====================================================
     // FIRESTORE TRANSACTION
     // ====================================================
 
-    await db.runTransaction(
-      async (
-        firestoreTransaction
-      ) => {
-        const existingPayment =
-          await firestoreTransaction
-            .get(
+    const result =
+      await db.runTransaction(
+        async (
+          firestoreTransaction
+        ) => {
+          // ==============================================
+          // READ PAYMENT AND USER BEFORE WRITING
+          // ==============================================
+
+          const [
+            existingPayment,
+            userSnapshot,
+          ] = await Promise.all([
+            firestoreTransaction.get(
               paymentRef
-            );
+            ),
 
-        // ================================================
-        // IDEMPOTENCY
-        // ================================================
+            firestoreTransaction.get(
+              userRef
+            ),
+          ]);
 
-        if (
-          existingPayment.exists &&
-          existingPayment.data()
-            ?.verified === true
-        ) {
-          const existingUserId =
-            String(
-              existingPayment
-                .data()
-                ?.userId ||
-                ""
-            );
+          // ==============================================
+          // DUPLICATE TRANSACTION PROTECTION
+          // ==============================================
 
           if (
-            existingUserId &&
-            existingUserId !==
-              authenticatedUserId
+            existingPayment.exists &&
+            existingPayment.data()
+              ?.verified === true
           ) {
-            throw new Error(
-              "This transaction has already been assigned to another account."
+            const existingPaymentData =
+              existingPayment.data() ||
+              {};
+
+            const existingUserId =
+              String(
+                existingPaymentData
+                  .userId ||
+                  ""
+              );
+
+            if (
+              existingUserId &&
+              existingUserId !==
+                authenticatedUserId
+            ) {
+              throw new Error(
+                "This transaction has already been assigned to another account."
+              );
+            }
+
+            const existingExpiry =
+              getExpiryDate(
+                existingPaymentData
+                  .subscriptionExpiresAt
+              );
+
+            return {
+              duplicate:
+                true,
+
+              expiresAt:
+                existingExpiry,
+            };
+          }
+
+          // ==============================================
+          // CURRENT USER SUBSCRIPTION
+          // ==============================================
+
+          const userData =
+            userSnapshot.exists
+              ? userSnapshot.data() ||
+                {}
+              : {};
+
+          const currentExpiry =
+            getExpiryDate(
+              userData
+                .subscriptionExpiresAt
             );
+
+          const currentPlan =
+            userData.plan === "pro"
+              ? "pro"
+              : "free";
+
+          const currentStatus =
+            userData
+              .subscriptionStatus ===
+            "active"
+              ? "active"
+              : "inactive";
+
+          const hasActiveFutureSubscription =
+            currentPlan === "pro" &&
+            currentStatus ===
+              "active" &&
+            currentExpiry !== null &&
+            currentExpiry.getTime() >
+              now.getTime();
+
+          // ==============================================
+          // RENEWAL BASE DATE
+          // ==============================================
+
+          const renewalBaseDate =
+            hasActiveFutureSubscription &&
+            currentExpiry
+              ? currentExpiry
+              : now;
+
+          // ==============================================
+          // ADD 30 DAYS
+          // ==============================================
+
+          const newExpiry =
+            addSubscriptionDays(
+              renewalBaseDate,
+              SUBSCRIPTION_DAYS
+            );
+
+          // ==============================================
+          // USER UPDATE
+          // ==============================================
+
+          const userUpdate:
+            Record<string, unknown> =
+            {
+              plan:
+                "pro",
+
+              subscriptionStatus:
+                "active",
+
+              foundingMember:
+                true,
+
+              generationLimit:
+                999999,
+
+              subscriptionExpiresAt:
+                Timestamp.fromDate(
+                  newExpiry
+                ),
+
+              lastPaymentTransactionId:
+                paymentId,
+
+              lastPaymentTxRef:
+                verifiedTxRef,
+
+              lastPaymentAt:
+                FieldValue
+                  .serverTimestamp(),
+
+              updatedAt:
+                FieldValue
+                  .serverTimestamp(),
+            };
+
+          // ==============================================
+          // NEW OR EXPIRED SUBSCRIPTION
+          // ==============================================
+
+          if (
+            !hasActiveFutureSubscription
+          ) {
+            userUpdate
+              .subscriptionStartedAt =
+              FieldValue
+                .serverTimestamp();
+          } else {
+            // Existing Pro user renewed
+            // before expiry.
+
+            userUpdate
+              .subscriptionRenewedAt =
+              FieldValue
+                .serverTimestamp();
           }
 
-          return;
+          firestoreTransaction.set(
+            userRef,
+            userUpdate,
+            {
+              merge:
+                true,
+            }
+          );
+
+          // ==============================================
+          // PAYMENT RECORD
+          // ==============================================
+
+          firestoreTransaction.set(
+            paymentRef,
+            {
+              userId:
+                authenticatedUserId,
+
+              transactionId:
+                paymentId,
+
+              txRef:
+                verifiedTxRef,
+
+              flutterwaveRef:
+                String(
+                  transaction
+                    .flw_ref ||
+                    ""
+                ),
+
+              amount:
+                Number(
+                  transaction.amount ||
+                    paidAmount
+                ),
+
+              chargedAmount:
+                paidAmount,
+
+              currency:
+                transaction.currency,
+
+              paymentStatus:
+                transaction.status,
+
+              plan:
+                "founding_pro",
+
+              customerEmail:
+                String(
+                  transaction.customer
+                    ?.email ||
+                    ""
+                ),
+
+              customerName:
+                String(
+                  transaction.customer
+                    ?.name ||
+                    ""
+                ),
+
+              verified:
+                true,
+
+              verifiedAt:
+                FieldValue
+                  .serverTimestamp(),
+
+              subscriptionDaysAdded:
+                SUBSCRIPTION_DAYS,
+
+              renewalBaseDate:
+                Timestamp.fromDate(
+                  renewalBaseDate
+                ),
+
+              subscriptionExpiresAt:
+                Timestamp.fromDate(
+                  newExpiry
+                ),
+
+              wasRenewal:
+                hasActiveFutureSubscription,
+            },
+            {
+              merge:
+                true,
+            }
+          );
+
+          return {
+            duplicate:
+              false,
+
+            expiresAt:
+              newExpiry,
+          };
         }
+      );
 
-        // ================================================
-        // ACTIVATE FOUNDING PRO
-        // ================================================
+    // ====================================================
+    // FINAL EXPIRY
+    // ====================================================
 
-        firestoreTransaction.set(
-          userRef,
-          {
-            plan:
-              "pro",
+    const finalExpiry =
+      result.expiresAt;
 
-            subscriptionStatus:
-              "active",
-
-            foundingMember:
-              true,
-
-            generationLimit:
-              999999,
-
-            subscriptionStartedAt:
-              FieldValue
-                .serverTimestamp(),
-
-            subscriptionExpiresAt:
-              Timestamp.fromDate(
-                expiresAt
-              ),
-
-            lastPaymentTransactionId:
-              paymentId,
-
-            lastPaymentTxRef:
-              verifiedTxRef,
-
-            updatedAt:
-              FieldValue
-                .serverTimestamp(),
-          },
-          {
-            merge:
-              true,
-          }
-        );
-
-        // ================================================
-        // PAYMENT RECORD
-        // ================================================
-
-        firestoreTransaction.set(
-          paymentRef,
-          {
-            userId:
-              authenticatedUserId,
-
-            transactionId:
-              paymentId,
-
-            txRef:
-              verifiedTxRef,
-
-            flutterwaveRef:
-              String(
-                transaction
-                  .flw_ref ||
-                  ""
-              ),
-
-            amount:
-              Number(
-                transaction.amount ||
-                  paidAmount
-              ),
-
-            chargedAmount:
-              paidAmount,
-
-            currency:
-              transaction.currency,
-
-            paymentStatus:
-              transaction.status,
-
-            plan:
-              "founding_pro",
-
-            customerEmail:
-              String(
-                transaction.customer
-                  ?.email ||
-                  ""
-              ),
-
-            customerName:
-              String(
-                transaction.customer
-                  ?.name ||
-                  ""
-              ),
-
-            verified:
-              true,
-
-            verifiedAt:
-              FieldValue
-                .serverTimestamp(),
-
-            subscriptionExpiresAt:
-              Timestamp.fromDate(
-                expiresAt
-              ),
-          },
-          {
-            merge:
-              true,
-          }
-        );
-      }
-    );
+    if (!finalExpiry) {
+      throw new Error(
+        "Unable to determine subscription expiry date."
+      );
+    }
 
     // ====================================================
     // SUCCESS
@@ -772,7 +972,9 @@ export async function POST(
           true,
 
         message:
-          "Payment verified successfully. Founding Pro is now active.",
+          result.duplicate
+            ? "Payment was already verified. Founding Pro remains active."
+            : "Payment verified successfully. Founding Pro is now active.",
 
         plan:
           "pro",
@@ -782,6 +984,9 @@ export async function POST(
 
         foundingMember:
           true,
+
+        duplicate:
+          result.duplicate,
 
         amount:
           paidAmount,
@@ -796,7 +1001,7 @@ export async function POST(
           paymentId,
 
         subscriptionExpiresAt:
-          expiresAt.toISOString(),
+          finalExpiry.toISOString(),
       },
       {
         status: 200,
