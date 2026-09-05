@@ -1,7 +1,23 @@
-import { NextRequest, NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
 
-export async function POST(req: NextRequest) {
+import {
+  getAdminAuth,
+} from "@/lib/firebase-admin";
+
+const PRO_AMOUNT = 5000;
+const PRO_CURRENCY = "NGN";
+
+export async function POST(
+  req: NextRequest
+) {
   try {
+    // =====================================================
+    // FLUTTERWAVE SECRET KEY
+    // =====================================================
+
     const secretKey =
       process.env.FLUTTERWAVE_SECRET_KEY;
 
@@ -10,7 +26,7 @@ export async function POST(req: NextRequest) {
         {
           success: false,
           error:
-            "Missing FLUTTERWAVE_SECRET_KEY",
+            "Payment service is not configured.",
         },
         {
           status: 500,
@@ -18,22 +34,97 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json();
+    // =====================================================
+    // VERIFY FIREBASE AUTHENTICATION
+    // =====================================================
 
-    const {
-      userId,
-      email,
-      name,
-    } = body;
+    const authorization =
+      req.headers.get("authorization");
+
+    if (
+      !authorization ||
+      !authorization.startsWith("Bearer ")
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Authentication required.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    const idToken =
+      authorization
+        .slice(7)
+        .trim();
+
+    if (!idToken) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Authentication token is missing.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    let decodedToken;
+
+    try {
+      decodedToken =
+        await getAdminAuth()
+          .verifyIdToken(idToken);
+    } catch (authError) {
+      console.error(
+        "FLUTTERWAVE INITIALIZE AUTH ERROR:",
+        authError
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Invalid or expired authentication token.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    // =====================================================
+    // AUTHENTICATED USER
+    // =====================================================
+
+    const userId =
+      decodedToken.uid;
+
+    const email =
+      typeof decodedToken.email === "string"
+        ? decodedToken.email.trim()
+        : "";
+
+    const name =
+      typeof decodedToken.name === "string"
+        ? decodedToken.name.trim()
+        : "NaijaVid AI User";
 
     if (!userId) {
       return NextResponse.json(
         {
           success: false,
-          error: "userId is required.",
+          error:
+            "Unable to identify authenticated user.",
         },
         {
-          status: 400,
+          status: 401,
         }
       );
     }
@@ -42,7 +133,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: "email is required.",
+          error:
+            "Your authenticated account does not have an email address.",
         },
         {
           status: 400,
@@ -50,8 +142,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // =====================================================
+    // TRANSACTION REFERENCE
+    // =====================================================
+
     const txRef =
       `naijavid_${userId}_${Date.now()}`;
+
+    // =====================================================
+    // CALLBACK URL
+    // =====================================================
 
     const appUrl =
       process.env.NEXT_PUBLIC_APP_URL ||
@@ -60,16 +160,26 @@ export async function POST(req: NextRequest) {
     const redirectUrl =
       `${appUrl}/payment/flutterwave/callback`;
 
+    // =====================================================
+    // SERVER-CONTROLLED PAYMENT PAYLOAD
+    // =====================================================
+
     const payload = {
-      tx_ref: txRef,
-      amount: 5000,
-      currency: "NGN",
+      tx_ref:
+        txRef,
+
+      amount:
+        PRO_AMOUNT,
+
+      currency:
+        PRO_CURRENCY,
 
       redirect_url:
         redirectUrl,
 
       customer: {
         email,
+
         name:
           name ||
           "NaijaVid AI User",
@@ -88,36 +198,77 @@ export async function POST(req: NextRequest) {
 
       meta: {
         userId,
+
         plan:
           "founding_pro",
       },
     };
 
-    const response = await fetch(
-      "https://api.flutterwave.com/v3/payments",
-      {
-        method: "POST",
+    // =====================================================
+    // INITIALIZE WITH FLUTTERWAVE
+    // =====================================================
 
-        headers: {
-          Authorization:
-            `Bearer ${secretKey}`,
+    const response =
+      await fetch(
+        "https://api.flutterwave.com/v3/payments",
+        {
+          method: "POST",
 
-          "Content-Type":
-            "application/json",
+          headers: {
+            Authorization:
+              `Bearer ${secretKey}`,
+
+            "Content-Type":
+              "application/json",
+
+            Accept:
+              "application/json",
+          },
+
+          body:
+            JSON.stringify(payload),
+
+          cache:
+            "no-store",
+        }
+      );
+
+    let data: any;
+
+    try {
+      data =
+        await response.json();
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Flutterwave returned an invalid response.",
         },
-
-        body:
-          JSON.stringify(payload),
-      }
-    );
-
-    const data =
-      await response.json();
+        {
+          status: 502,
+        }
+      );
+    }
 
     console.log(
       "FLUTTERWAVE INITIALIZE RESPONSE:",
-      data
+      {
+        status:
+          data?.status,
+
+        message:
+          data?.message,
+
+        userId,
+
+        txRef,
+      }
     );
+
+    // =====================================================
+    // FLUTTERWAVE ERROR
+    // =====================================================
 
     if (
       !response.ok ||
@@ -130,8 +281,6 @@ export async function POST(req: NextRequest) {
           error:
             data?.message ||
             "Flutterwave payment initialization failed.",
-
-          flutterwave: data,
         },
         {
           status:
@@ -143,18 +292,26 @@ export async function POST(req: NextRequest) {
     const checkoutLink =
       data?.data?.link;
 
-    if (!checkoutLink) {
+    if (
+      !checkoutLink ||
+      typeof checkoutLink !== "string"
+    ) {
       return NextResponse.json(
         {
           success: false,
+
           error:
             "Flutterwave did not return a checkout link.",
         },
         {
-          status: 500,
+          status: 502,
         }
       );
     }
+
+    // =====================================================
+    // SUCCESS
+    // =====================================================
 
     return NextResponse.json(
       {

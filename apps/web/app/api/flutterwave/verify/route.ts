@@ -1,7 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
 
-import { getAdminDb } from "@/lib/firebase-admin";
+import {
+  FieldValue,
+  Timestamp,
+} from "firebase-admin/firestore";
+
+import {
+  getAdminAuth,
+  getAdminDb,
+} from "@/lib/firebase-admin";
 
 const PRO_AMOUNT = 5000;
 const PRO_CURRENCY = "NGN";
@@ -39,60 +49,67 @@ type FlutterwaveVerificationResponse = {
   };
 };
 
-// ----------------------------------------------------
+// ========================================================
 // EXTRACT USER ID FROM TX REF
-// ----------------------------------------------------
+// ========================================================
 
-function getUserIdFromTxRef(txRef: string) {
-  /*
-    Expected format:
-
-    naijavid_USERID_TIMESTAMP
-
-    Example:
-    naijavid_LjU4t5mEB6P5yUmZ8aIHCxf3giC2_1787486353548
-  */
-
-  if (!txRef.startsWith("naijavid_")) {
+function getUserIdFromTxRef(
+  txRef: string
+) {
+  if (
+    !txRef.startsWith(
+      "naijavid_"
+    )
+  ) {
     return "";
   }
 
   const withoutPrefix =
-    txRef.substring("naijavid_".length);
+    txRef.substring(
+      "naijavid_".length
+    );
 
   const lastUnderscore =
-    withoutPrefix.lastIndexOf("_");
+    withoutPrefix.lastIndexOf(
+      "_"
+    );
 
-  if (lastUnderscore === -1) {
+  if (
+    lastUnderscore === -1
+  ) {
     return "";
   }
 
   return withoutPrefix
-    .substring(0, lastUnderscore)
+    .substring(
+      0,
+      lastUnderscore
+    )
     .trim();
 }
 
-// ----------------------------------------------------
+// ========================================================
 // VERIFY PAYMENT
-// ----------------------------------------------------
+// ========================================================
 
 export async function POST(
   request: NextRequest
 ) {
   try {
-    // ------------------------------------------------
-    // FLUTTERWAVE SECRET KEY
-    // ------------------------------------------------
+    // ====================================================
+    // FLUTTERWAVE CONFIGURATION
+    // ====================================================
 
     const secretKey =
-      process.env.FLUTTERWAVE_SECRET_KEY;
+      process.env
+        .FLUTTERWAVE_SECRET_KEY;
 
     if (!secretKey) {
       return NextResponse.json(
         {
           success: false,
           error:
-            "Missing FLUTTERWAVE_SECRET_KEY",
+            "Payment service is not configured.",
         },
         {
           status: 500,
@@ -100,21 +117,112 @@ export async function POST(
       );
     }
 
-    // ------------------------------------------------
+    // ====================================================
+    // VERIFY FIREBASE AUTHENTICATION
+    // ====================================================
+
+    const authorization =
+      request.headers.get(
+        "authorization"
+      );
+
+    if (
+      !authorization ||
+      !authorization.startsWith(
+        "Bearer "
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Authentication required.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    const idToken =
+      authorization
+        .slice(7)
+        .trim();
+
+    if (!idToken) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Authentication token is missing.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    let decodedToken;
+
+    try {
+      decodedToken =
+        await getAdminAuth()
+          .verifyIdToken(
+            idToken
+          );
+    } catch (authError) {
+      console.error(
+        "FLUTTERWAVE VERIFY AUTH ERROR:",
+        authError
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Invalid or expired authentication token.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    const authenticatedUserId =
+      decodedToken.uid;
+
+    if (
+      !authenticatedUserId
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Unable to identify authenticated user.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    // ====================================================
     // REQUEST BODY
-    // ------------------------------------------------
+    // ====================================================
 
     const body =
       await request.json();
 
     const transactionId =
       String(
-        body.transactionId || ""
+        body.transactionId ||
+          ""
       ).trim();
 
     const callbackTxRef =
       String(
-        body.txRef || ""
+        body.txRef ||
+          ""
       ).trim();
 
     if (!transactionId) {
@@ -130,9 +238,9 @@ export async function POST(
       );
     }
 
-    // ------------------------------------------------
-    // VERIFY WITH FLUTTERWAVE
-    // ------------------------------------------------
+    // ====================================================
+    // VERIFY DIRECTLY WITH FLUTTERWAVE
+    // ====================================================
 
     const verificationResponse =
       await fetch(
@@ -153,7 +261,8 @@ export async function POST(
               "application/json",
           },
 
-          cache: "no-store",
+          cache:
+            "no-store",
         }
       );
 
@@ -176,14 +285,9 @@ export async function POST(
       );
     }
 
-    console.log(
-      "FLUTTERWAVE VERIFY RESPONSE:",
-      verificationData
-    );
-
-    // ------------------------------------------------
-    // FLUTTERWAVE API FAILURE
-    // ------------------------------------------------
+    // ====================================================
+    // FLUTTERWAVE API RESULT
+    // ====================================================
 
     if (
       !verificationResponse.ok ||
@@ -217,14 +321,14 @@ export async function POST(
             "Flutterwave verification returned no transaction data.",
         },
         {
-          status: 500,
+          status: 502,
         }
       );
     }
 
-    // ------------------------------------------------
-    // TRANSACTION STATUS
-    // ------------------------------------------------
+    // ====================================================
+    // VERIFY PAYMENT STATUS
+    // ====================================================
 
     if (
       transaction.status !==
@@ -235,7 +339,10 @@ export async function POST(
           success: false,
 
           error:
-            `Payment status is ${transaction.status || "unknown"}.`,
+            `Payment status is ${
+              transaction.status ||
+              "unknown"
+            }.`,
         },
         {
           status: 400,
@@ -243,9 +350,9 @@ export async function POST(
       );
     }
 
-    // ------------------------------------------------
+    // ====================================================
     // VERIFY CURRENCY
-    // ------------------------------------------------
+    // ====================================================
 
     if (
       transaction.currency !==
@@ -264,13 +371,14 @@ export async function POST(
       );
     }
 
-    // ------------------------------------------------
+    // ====================================================
     // VERIFY AMOUNT
-    // ------------------------------------------------
+    // ====================================================
 
     const paidAmount =
       Number(
-        transaction.charged_amount ??
+        transaction
+          .charged_amount ??
           transaction.amount ??
           0
       );
@@ -279,7 +387,8 @@ export async function POST(
       !Number.isFinite(
         paidAmount
       ) ||
-      paidAmount < PRO_AMOUNT
+      paidAmount <
+        PRO_AMOUNT
     ) {
       return NextResponse.json(
         {
@@ -294,13 +403,14 @@ export async function POST(
       );
     }
 
-    // ------------------------------------------------
+    // ====================================================
     // VERIFY TX REF
-    // ------------------------------------------------
+    // ====================================================
 
     const verifiedTxRef =
       String(
-        transaction.tx_ref || ""
+        transaction.tx_ref ||
+          ""
       ).trim();
 
     if (!verifiedTxRef) {
@@ -334,14 +444,43 @@ export async function POST(
       );
     }
 
-    // ------------------------------------------------
-    // FIND USER ID
-    // ------------------------------------------------
+    // ====================================================
+    // VERIFY PLAN
+    // ====================================================
+
+    const verifiedPlan =
+      typeof transaction.meta
+        ?.plan === "string"
+        ? transaction.meta.plan
+            .trim()
+            .toLowerCase()
+        : "";
+
+    if (
+      verifiedPlan !==
+      "founding_pro"
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Transaction is not for the Founding Pro plan.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    // ====================================================
+    // DETERMINE PAYMENT OWNER
+    // ====================================================
 
     const metaUserId =
       typeof transaction.meta
         ?.userId === "string"
-        ? transaction.meta.userId.trim()
+        ? transaction.meta.userId
+            .trim()
         : "";
 
     const txRefUserId =
@@ -349,11 +488,31 @@ export async function POST(
         verifiedTxRef
       );
 
-    const userId =
+    // Both values should agree when both are present.
+
+    if (
+      metaUserId &&
+      txRefUserId &&
+      metaUserId !==
+        txRefUserId
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Payment ownership information does not match.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const paymentUserId =
       metaUserId ||
       txRefUserId;
 
-    if (!userId) {
+    if (!paymentUserId) {
       return NextResponse.json(
         {
           success: false,
@@ -367,9 +526,38 @@ export async function POST(
       );
     }
 
-    // ------------------------------------------------
+    // ====================================================
+    // CRITICAL OWNERSHIP CHECK
+    // ====================================================
+
+    if (
+      paymentUserId !==
+      authenticatedUserId
+    ) {
+      console.warn(
+        "PAYMENT OWNERSHIP MISMATCH:",
+        {
+          authenticatedUserId,
+          paymentUserId,
+          transactionId,
+        }
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "This payment does not belong to the authenticated account.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    // ====================================================
     // FIRESTORE
-    // ------------------------------------------------
+    // ====================================================
 
     const db =
       getAdminDb();
@@ -377,21 +565,28 @@ export async function POST(
     const userRef =
       db
         .collection("users")
-        .doc(userId);
+        .doc(
+          authenticatedUserId
+        );
+
+    const paymentId =
+      String(
+        transaction.id ||
+          transactionId
+      );
 
     const paymentRef =
       db
-        .collection("payments")
+        .collection(
+          "payments"
+        )
         .doc(
-          String(
-            transaction.id ||
-              transactionId
-          )
+          paymentId
         );
 
-    // ------------------------------------------------
+    // ====================================================
     // SUBSCRIPTION DATES
-    // ------------------------------------------------
+    // ====================================================
 
     const now =
       new Date();
@@ -400,53 +595,76 @@ export async function POST(
       new Date(now);
 
     expiresAt.setDate(
-      expiresAt.getDate() + 30
+      expiresAt.getDate() +
+        30
     );
 
-    // ------------------------------------------------
-    // TRANSACTION
-    // ------------------------------------------------
+    // ====================================================
+    // FIRESTORE TRANSACTION
+    // ====================================================
 
     await db.runTransaction(
       async (
         firestoreTransaction
       ) => {
         const existingPayment =
-          await firestoreTransaction.get(
-            paymentRef
-          );
+          await firestoreTransaction
+            .get(
+              paymentRef
+            );
 
-        // --------------------------------------------
+        // ================================================
         // IDEMPOTENCY
-        // --------------------------------------------
+        // ================================================
 
         if (
           existingPayment.exists &&
           existingPayment.data()
             ?.verified === true
         ) {
+          const existingUserId =
+            String(
+              existingPayment
+                .data()
+                ?.userId ||
+                ""
+            );
+
+          if (
+            existingUserId &&
+            existingUserId !==
+              authenticatedUserId
+          ) {
+            throw new Error(
+              "This transaction has already been assigned to another account."
+            );
+          }
+
           return;
         }
 
-        // --------------------------------------------
+        // ================================================
         // ACTIVATE FOUNDING PRO
-        // --------------------------------------------
+        // ================================================
 
         firestoreTransaction.set(
           userRef,
           {
-            plan: "pro",
+            plan:
+              "pro",
 
             subscriptionStatus:
               "active",
 
-            foundingMember: true,
+            foundingMember:
+              true,
 
             generationLimit:
               999999,
 
             subscriptionStartedAt:
-              FieldValue.serverTimestamp(),
+              FieldValue
+                .serverTimestamp(),
 
             subscriptionExpiresAt:
               Timestamp.fromDate(
@@ -454,43 +672,41 @@ export async function POST(
               ),
 
             lastPaymentTransactionId:
-              String(
-                transaction.id ||
-                  transactionId
-              ),
+              paymentId,
 
             lastPaymentTxRef:
               verifiedTxRef,
 
             updatedAt:
-              FieldValue.serverTimestamp(),
+              FieldValue
+                .serverTimestamp(),
           },
           {
-            merge: true,
+            merge:
+              true,
           }
         );
 
-        // --------------------------------------------
-        // SAVE PAYMENT RECORD
-        // --------------------------------------------
+        // ================================================
+        // PAYMENT RECORD
+        // ================================================
 
         firestoreTransaction.set(
           paymentRef,
           {
-            userId,
+            userId:
+              authenticatedUserId,
 
             transactionId:
-              String(
-                transaction.id ||
-                  transactionId
-              ),
+              paymentId,
 
             txRef:
               verifiedTxRef,
 
             flutterwaveRef:
               String(
-                transaction.flw_ref ||
+                transaction
+                  .flw_ref ||
                   ""
               ),
 
@@ -515,19 +731,23 @@ export async function POST(
             customerEmail:
               String(
                 transaction.customer
-                  ?.email || ""
+                  ?.email ||
+                  ""
               ),
 
             customerName:
               String(
                 transaction.customer
-                  ?.name || ""
+                  ?.name ||
+                  ""
               ),
 
-            verified: true,
+            verified:
+              true,
 
             verifiedAt:
-              FieldValue.serverTimestamp(),
+              FieldValue
+                .serverTimestamp(),
 
             subscriptionExpiresAt:
               Timestamp.fromDate(
@@ -535,19 +755,21 @@ export async function POST(
               ),
           },
           {
-            merge: true,
+            merge:
+              true,
           }
         );
       }
     );
 
-    // ------------------------------------------------
+    // ====================================================
     // SUCCESS
-    // ------------------------------------------------
+    // ====================================================
 
     return NextResponse.json(
       {
-        success: true,
+        success:
+          true,
 
         message:
           "Payment verified successfully. Founding Pro is now active.",
@@ -561,8 +783,6 @@ export async function POST(
         foundingMember:
           true,
 
-        userId,
-
         amount:
           paidAmount,
 
@@ -573,10 +793,7 @@ export async function POST(
           verifiedTxRef,
 
         transactionId:
-          String(
-            transaction.id ||
-              transactionId
-          ),
+          paymentId,
 
         subscriptionExpiresAt:
           expiresAt.toISOString(),
