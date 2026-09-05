@@ -925,80 +925,108 @@ export default function GeneratorPage() {
   // --------------------------------------------------
 
   async function saveVideoToHistory(
-    generatedVideoUrl: string
-  ) {
-    const currentUser = auth.currentUser;
+  generatedVideoUrl: string
+) {
+  const currentUser = auth.currentUser;
 
-    if (!currentUser) {
-      return false;
-    }
+  if (!currentUser) {
+    return false;
+  }
+
+  try {
+    // Get the authenticated Firebase ID token.
+    // The server will derive the userId from this token.
+    const idToken =
+      await currentUser.getIdToken();
+
+    const response = await fetch(
+      "/api/save-video",
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+
+        body: JSON.stringify({
+          prompt,
+          mode,
+          language,
+
+          duration:
+            mode === "multi"
+              ? multiSceneTotalDuration
+              : duration,
+
+          videoUrl:
+            generatedVideoUrl,
+
+          watermark,
+          aspectRatio,
+          cameraMotion,
+
+          showCaption,
+          captionStyle,
+          captionPosition,
+
+          showWatermark,
+          watermarkPosition,
+          watermarkOpacity,
+
+          backgroundMusic,
+          musicVolume,
+
+          imageCount:
+            mode === "multi"
+              ? multiImageFiles.length
+              : mode === "image"
+                ? 1
+                : 0,
+
+          sceneTransition:
+            mode === "multi"
+              ? sceneTransition
+              : "none",
+        }),
+      }
+    );
+
+    let data: any = null;
 
     try {
-      const response = await fetch(
-        "/api/save-video",
+      data =
+        await response.json();
+    } catch {
+      data = null;
+    }
+
+    if (
+      !response.ok ||
+      !data?.success
+    ) {
+      console.error(
+        "HISTORY SAVE ERROR:",
         {
-          method: "POST",
-
-          headers: {
-            "Content-Type": "application/json",
-          },
-
-          body: JSON.stringify({
-            userId: currentUser.uid,
-            prompt,
-            mode,
-            language,
-            duration:
-              mode === "multi"
-                ? multiSceneTotalDuration
-                : duration,
-            videoUrl: generatedVideoUrl,
-            watermark,
-            aspectRatio,
-            cameraMotion,
-            showCaption,
-            captionStyle,
-            captionPosition,
-            showWatermark,
-            watermarkPosition,
-            watermarkOpacity,
-            backgroundMusic,
-            musicVolume,
-            imageCount:
-              mode === "multi"
-                ? multiImageFiles.length
-                : mode === "image"
-                  ? 1
-                  : 0,
-            sceneTransition:
-              mode === "multi"
-                ? sceneTransition
-                : "none",
-          }),
+          status:
+            response.status,
+          data,
         }
       );
 
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        console.error(
-          "HISTORY SAVE ERROR:",
-          data
-        );
-
-        return false;
-      }
-
-      return true;
-    } catch (err) {
-      console.error(
-        "HISTORY SAVE ERROR:",
-        err
-      );
-
       return false;
     }
+
+    return true;
+  } catch (err) {
+    console.error(
+      "HISTORY SAVE ERROR:",
+      err
+    );
+
+    return false;
   }
+}
 
   async function getBackendAuthHeaders() {
     const currentUser = auth.currentUser;

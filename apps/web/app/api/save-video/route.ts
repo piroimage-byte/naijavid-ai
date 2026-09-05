@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 
-import { getAdminDb } from "@/lib/firebase-admin";
+import {
+  getAdminAuth,
+  getAdminDb,
+} from "@/lib/firebase-admin";
 
 type VideoMode =
   | "text"
@@ -9,7 +12,6 @@ type VideoMode =
   | "multi";
 
 type SaveVideoBody = {
-  userId?: string;
   prompt?: string;
   mode?: VideoMode | string;
   language?: string;
@@ -35,13 +37,101 @@ type SaveVideoBody = {
   sceneTransition?: string;
 };
 
-export async function POST(request: NextRequest) {
+export async function POST(
+  request: NextRequest
+) {
   try {
+    // =====================================================
+    // VERIFY FIREBASE AUTHENTICATION
+    // =====================================================
+
+    const authorization =
+      request.headers.get("authorization");
+
+    if (
+      !authorization ||
+      !authorization.startsWith("Bearer ")
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Authentication required.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    const idToken =
+      authorization
+        .slice(7)
+        .trim();
+
+    if (!idToken) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Authentication token is missing.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    let decodedToken;
+
+    try {
+      decodedToken =
+        await getAdminAuth()
+          .verifyIdToken(idToken);
+    } catch (authError) {
+      console.error(
+        "SAVE VIDEO AUTH ERROR:",
+        authError
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Invalid or expired authentication token.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    // =====================================================
+    // UID COMES ONLY FROM VERIFIED FIREBASE TOKEN
+    // =====================================================
+
+    const userId =
+      decodedToken.uid;
+
+    if (!userId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Unable to identify authenticated user.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    // =====================================================
+    // READ REQUEST BODY
+    // =====================================================
+
     const body =
       (await request.json()) as SaveVideoBody;
 
     const {
-      userId,
       prompt,
       mode,
       language,
@@ -68,25 +158,6 @@ export async function POST(request: NextRequest) {
     } = body;
 
     // =====================================================
-    // VALIDATE USER
-    // =====================================================
-
-    if (
-      !userId ||
-      typeof userId !== "string"
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "userId is required.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    // =====================================================
     // VALIDATE VIDEO URL
     // =====================================================
 
@@ -94,6 +165,21 @@ export async function POST(request: NextRequest) {
       !videoUrl ||
       typeof videoUrl !== "string"
     ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "videoUrl is required.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const normalizedVideoUrl =
+      videoUrl.trim();
+
+    if (!normalizedVideoUrl) {
       return NextResponse.json(
         {
           success: false,
@@ -158,7 +244,8 @@ export async function POST(request: NextRequest) {
     // FIREBASE ADMIN
     // =====================================================
 
-    const db = getAdminDb();
+    const db =
+      getAdminDb();
 
     // =====================================================
     // SAVE VIDEO HISTORY
@@ -168,6 +255,8 @@ export async function POST(request: NextRequest) {
       await db
         .collection("videoHistory")
         .add({
+          // IMPORTANT:
+          // This UID came from the verified Firebase token.
           userId,
 
           prompt:
@@ -186,7 +275,8 @@ export async function POST(request: NextRequest) {
           duration:
             safeDuration,
 
-          videoUrl,
+          videoUrl:
+            normalizedVideoUrl,
 
           watermark:
             typeof watermark === "string"
@@ -302,7 +392,8 @@ export async function POST(request: NextRequest) {
         duration:
           safeDuration,
 
-        videoUrl,
+        videoUrl:
+          normalizedVideoUrl,
       }
     );
 
@@ -348,11 +439,6 @@ export async function POST(request: NextRequest) {
     console.error(
       "STACK:",
       error?.stack
-    );
-
-    console.error(
-      "FULL ERROR:",
-      error
     );
 
     console.error(
