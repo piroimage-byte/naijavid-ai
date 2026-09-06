@@ -371,6 +371,128 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "http://localhost:8000";
 
+
+const GENERATION_TIMEOUT_MS = 180_000;
+const API_TIMEOUT_MS = 30_000;
+
+type ApiErrorPayload = {
+  detail?: string;
+  error?: string;
+  message?: string;
+};
+
+class NaijaVidRequestError extends Error {
+  status?: number;
+  code?: string;
+
+  constructor(message: string, status?: number, code?: string) {
+    super(message);
+    this.name = "NaijaVidRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+function friendlyErrorMessage(error: unknown) {
+  if (error instanceof NaijaVidRequestError) {
+    if (error.status === 401) {
+      return "Your session has expired. Please sign in again.";
+    }
+
+    if (error.status === 403) {
+      return error.message || "Your current plan does not allow this action.";
+    }
+
+    if (error.status === 429) {
+      return "Too many requests. Please wait a moment and try again.";
+    }
+
+    if (
+      error.status === 500 ||
+      error.status === 502 ||
+      error.status === 503 ||
+      error.status === 504
+    ) {
+      return "The video service is temporarily unavailable. Please try again shortly.";
+    }
+
+    return error.message || "Something went wrong. Please try again.";
+  }
+
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return "Generation is taking too long. Please try again.";
+  }
+
+  if (error instanceof TypeError) {
+    return "Unable to connect. Check your internet connection and try again.";
+  }
+
+  if (error instanceof Error) {
+    const message = error.message.trim();
+
+    if (/failed to fetch|networkerror|network request failed/i.test(message)) {
+      return "Unable to connect. Check your internet connection and try again.";
+    }
+
+    if (/timeout|timed out|aborted/i.test(message)) {
+      return "Generation is taking too long. Please try again.";
+    }
+
+    return message || "Something went wrong. Please try again.";
+  }
+
+  return "Something went wrong. Please try again.";
+}
+
+async function readApiPayload(response: Response): Promise<ApiErrorPayload & Record<string, any>> {
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
+}
+
+function getApiErrorMessage(
+  data: ApiErrorPayload | null | undefined,
+  fallback: string
+) {
+  return data?.detail || data?.error || data?.message || fallback;
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = API_TIMEOUT_MS
+) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function requireSuccessfulResponse(
+  response: Response,
+  fallback: string
+) {
+  const data = await readApiPayload(response);
+
+  if (!response.ok) {
+    throw new NaijaVidRequestError(
+      getApiErrorMessage(data, fallback),
+      response.status
+    );
+  }
+
+  return data;
+}
+
 export default function GeneratorPage() {
   const router = useRouter();
 
@@ -701,8 +823,7 @@ export default function GeneratorPage() {
         );
 
         setError(
-          err?.message ||
-            "Unable to load generation access."
+          friendlyErrorMessage(err)
         );
       } finally {
         setAccessLoading(false);
@@ -1050,21 +1171,16 @@ export default function GeneratorPage() {
   async function generateTextVideo() {
     const authHeaders = await getBackendAuthHeaders();
 
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `${BACKEND_URL}/generate`,
       {
         method: "POST",
-
         headers: {
           "Content-Type": "application/json",
           ...authHeaders,
         },
-
         body: JSON.stringify({
-          prompt: buildStyledPrompt(
-            prompt,
-            videoStyle
-          ),
+          prompt: buildStyledPrompt(prompt, videoStyle),
           language,
           duration,
           watermark,
@@ -1080,19 +1196,14 @@ export default function GeneratorPage() {
           music_volume: musicVolume,
           video_style: videoStyle,
         }),
-      }
+      },
+      GENERATION_TIMEOUT_MS
     );
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        data?.detail ||
-          data?.error ||
-          data?.message ||
-          "Text-to-video generation failed."
-      );
-    }
+    const data = await requireSuccessfulResponse(
+      response,
+      "Text-to-video generation failed."
+    );
 
     const generatedUrl =
       data.videoUrl ||
@@ -1101,8 +1212,9 @@ export default function GeneratorPage() {
       data.output_url;
 
     if (!generatedUrl) {
-      throw new Error(
-        "Backend did not return a video URL."
+      throw new NaijaVidRequestError(
+        "The video service completed the request but did not return a video file.",
+        502
       );
     }
 
@@ -1115,115 +1227,43 @@ export default function GeneratorPage() {
 
   async function generateImageVideo() {
     if (!imageFile) {
-      throw new Error(
-        "Please select an image."
-      );
+      throw new Error("Please select an image.");
     }
 
     const authHeaders = await getBackendAuthHeaders();
     const formData = new FormData();
 
-    formData.append(
-      "image",
-      imageFile
-    );
+    formData.append("image", imageFile);
+    formData.append("prompt", buildStyledPrompt(prompt, videoStyle));
+    formData.append("language", language);
+    formData.append("duration", String(duration));
+    formData.append("watermark", watermark);
+    formData.append("aspect_ratio", aspectRatio);
+    formData.append("motion_style", cameraMotion);
+    formData.append("caption_style", captionStyle);
+    formData.append("caption_position", captionPosition);
+    formData.append("show_caption", String(showCaption));
+    formData.append("show_watermark", String(showWatermark));
+    formData.append("watermark_position", watermarkPosition);
+    formData.append("watermark_opacity", String(watermarkOpacity));
+    formData.append("background_music", backgroundMusic);
+    formData.append("music_volume", String(musicVolume));
+    formData.append("video_style", videoStyle);
 
-    formData.append(
-      "prompt",
-      buildStyledPrompt(
-        prompt,
-        videoStyle
-      )
-    );
-
-    formData.append(
-      "language",
-      language
-    );
-
-    formData.append(
-      "duration",
-      String(duration)
-    );
-
-    formData.append(
-      "watermark",
-      watermark
-    );
-
-    formData.append(
-      "aspect_ratio",
-      aspectRatio
-    );
-
-    formData.append(
-      "motion_style",
-      cameraMotion
-    );
-
-    formData.append(
-      "caption_style",
-      captionStyle
-    );
-
-    formData.append(
-      "caption_position",
-      captionPosition
-    );
-
-    formData.append(
-      "show_caption",
-      String(showCaption)
-    );
-
-    formData.append(
-      "show_watermark",
-      String(showWatermark)
-    );
-
-    formData.append(
-      "watermark_position",
-      watermarkPosition
-    );
-
-    formData.append(
-      "watermark_opacity",
-      String(watermarkOpacity)
-    );
-
-    formData.append(
-      "background_music",
-      backgroundMusic
-    );
-
-    formData.append(
-      "music_volume",
-      String(musicVolume)
-    );
-    formData.append(
-      "video_style",
-      videoStyle
-    );
-
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `${BACKEND_URL}/generate-from-image`,
       {
         method: "POST",
         headers: authHeaders,
         body: formData,
-      }
+      },
+      GENERATION_TIMEOUT_MS
     );
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        data?.detail ||
-          data?.error ||
-          data?.message ||
-          "Image-to-video generation failed."
-      );
-    }
+    const data = await requireSuccessfulResponse(
+      response,
+      "Image-to-video generation failed."
+    );
 
     const generatedUrl =
       data.videoUrl ||
@@ -1232,8 +1272,9 @@ export default function GeneratorPage() {
       data.output_url;
 
     if (!generatedUrl) {
-      throw new Error(
-        "Backend did not return a video URL."
+      throw new NaijaVidRequestError(
+        "The video service completed the request but did not return a video file.",
+        502
       );
     }
 
@@ -1253,18 +1294,6 @@ export default function GeneratorPage() {
       throw new Error("You can upload a maximum of 5 images.");
     }
 
-    const authHeaders = await getBackendAuthHeaders();
-    const formData = new FormData();
-
-    multiImageFiles.forEach((file) => {
-      formData.append("images", file);
-    });
-
-    formData.append(
-      "prompt",
-      buildStyledPrompt(prompt, videoStyle)
-    );
-    formData.append("language", language);
     if (multiSceneTotalDuration < 2) {
       throw new Error("Please set a duration for every scene.");
     }
@@ -1273,6 +1302,15 @@ export default function GeneratorPage() {
       throw new Error("Total scene duration cannot exceed 60 seconds.");
     }
 
+    const authHeaders = await getBackendAuthHeaders();
+    const formData = new FormData();
+
+    multiImageFiles.forEach((file) => {
+      formData.append("images", file);
+    });
+
+    formData.append("prompt", buildStyledPrompt(prompt, videoStyle));
+    formData.append("language", language);
     formData.append("duration", String(multiSceneTotalDuration));
     formData.append("scene_prompts", JSON.stringify(scenePrompts));
     formData.append("scene_durations", JSON.stringify(sceneDurations));
@@ -1290,25 +1328,20 @@ export default function GeneratorPage() {
     formData.append("video_style", videoStyle);
     formData.append("scene_transition", sceneTransition);
 
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `${BACKEND_URL}/generate-from-images`,
       {
         method: "POST",
         headers: authHeaders,
         body: formData,
-      }
+      },
+      GENERATION_TIMEOUT_MS
     );
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        data?.detail ||
-          data?.error ||
-          data?.message ||
-          "Multiple-image video generation failed."
-      );
-    }
+    const data = await requireSuccessfulResponse(
+      response,
+      "Multiple-image video generation failed."
+    );
 
     const generatedUrl =
       data.videoUrl ||
@@ -1317,7 +1350,10 @@ export default function GeneratorPage() {
       data.output_url;
 
     if (!generatedUrl) {
-      throw new Error("Backend did not return a video URL.");
+      throw new NaijaVidRequestError(
+        "The video service completed the request but did not return a video file.",
+        502
+      );
     }
 
     return generatedUrl;
@@ -1433,7 +1469,7 @@ export default function GeneratorPage() {
         100,
         saved
           ? "Video generated successfully and saved to history."
-          : "Video generated successfully."
+          : "Video generated successfully, but it could not be saved to History. You can still open or download the video below."
       );
     } catch (err: any) {
       console.error(
@@ -1441,12 +1477,19 @@ export default function GeneratorPage() {
         err
       );
 
-      setError(
-        err?.message ||
-          "Video generation failed."
-      );
+      const friendlyMessage = friendlyErrorMessage(err);
 
+      setError(friendlyMessage);
       setMessage("");
+
+      if (
+        err instanceof NaijaVidRequestError &&
+        err.status === 401
+      ) {
+        window.setTimeout(() => {
+          router.push("/login");
+        }, 1200);
+      }
     } finally {
       setGenerating(false);
     }
