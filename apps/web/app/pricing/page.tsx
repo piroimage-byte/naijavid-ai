@@ -1,9 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/providers/auth-provider";
+
+
+type GenerationAccessResponse = {
+  success?: boolean;
+  plan?: string;
+  subscriptionStatus?: string;
+  subscriptionExpiresAt?: string | null;
+  error?: string;
+};
 
 type InitializeResponse = {
   success?: boolean;
@@ -24,6 +33,108 @@ export default function PricingPage() {
   const [message, setMessage] =
     useState("");
 
+  const [currentPlan, setCurrentPlan] =
+    useState<"free" | "pro">("free");
+
+  const [subscriptionExpiresAt, setSubscriptionExpiresAt] =
+    useState<string | null>(null);
+
+  const [checkingPlan, setCheckingPlan] =
+    useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCurrentPlan() {
+      if (loading) return;
+
+      if (!user) {
+        if (!cancelled) {
+          setCurrentPlan("free");
+          setSubscriptionExpiresAt(null);
+          setCheckingPlan(false);
+        }
+        return;
+      }
+
+      try {
+        setCheckingPlan(true);
+
+        const idToken =
+          await user.getIdToken();
+
+        const response =
+          await fetch(
+            "/api/generation-access",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+                Authorization:
+                  `Bearer ${idToken}`,
+              },
+              body:
+                JSON.stringify({
+                  action: "check",
+                }),
+              cache:
+                "no-store",
+            }
+          );
+
+        const data:
+          GenerationAccessResponse =
+            await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+              "Unable to load subscription."
+          );
+        }
+
+        if (!cancelled) {
+          const isPro =
+            data.plan === "pro" &&
+            data.subscriptionStatus ===
+              "active";
+
+          setCurrentPlan(
+            isPro ? "pro" : "free"
+          );
+
+          setSubscriptionExpiresAt(
+            typeof data.subscriptionExpiresAt ===
+              "string"
+              ? data.subscriptionExpiresAt
+              : null
+          );
+        }
+      } catch (error) {
+        console.error(
+          "PRICING PLAN LOAD ERROR:",
+          error
+        );
+
+        if (!cancelled) {
+          setCurrentPlan("free");
+          setSubscriptionExpiresAt(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setCheckingPlan(false);
+        }
+      }
+    }
+
+    loadCurrentPlan();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, loading]);
+
   async function startFoundingProPayment() {
     if (!user) {
       setMessage(
@@ -36,7 +147,9 @@ export default function PricingPage() {
       setStartingPayment(true);
 
       setMessage(
-        "Starting Flutterwave payment..."
+        currentPlan === "pro"
+          ? "Starting Founding Pro renewal..."
+          : "Starting Flutterwave payment..."
       );
 
       // ===================================================
@@ -212,6 +325,29 @@ export default function PricingPage() {
           </div>
         )}
 
+        {/* CURRENT SUBSCRIPTION */}
+
+        {!checkingPlan && (
+          <div className="mb-6 sm:mb-8 rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-5">
+            <p className="text-sm sm:text-base text-white/70">
+              Current plan:{" "}
+              <span className={currentPlan === "pro" ? "font-bold text-green-400" : "font-bold text-white"}>
+                {currentPlan === "pro" ? "FOUNDING PRO" : "FREE"}
+              </span>
+            </p>
+
+            {currentPlan === "pro" &&
+              subscriptionExpiresAt && (
+                <p className="mt-2 text-sm text-white/50">
+                  Subscription expires:{" "}
+                  {new Date(
+                    subscriptionExpiresAt
+                  ).toLocaleString()}
+                </p>
+              )}
+          </div>
+        )}
+
         {/* PLANS */}
 
         <div className="grid grid-cols-1 gap-5 sm:gap-6 md:grid-cols-2 md:gap-8">
@@ -383,13 +519,20 @@ export default function PricingPage() {
                 startFoundingProPayment
               }
               disabled={
-                startingPayment
+                startingPayment ||
+                checkingPlan
               }
               className="mt-8 sm:mt-10 min-h-12 w-full rounded-xl bg-white px-5 sm:px-6 py-3.5 sm:py-4 font-bold text-black transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {startingPayment
-                ? "Starting payment..."
-                : "Upgrade to Founding Pro"}
+              {checkingPlan
+                ? "Checking subscription..."
+                : startingPayment
+                  ? currentPlan === "pro"
+                    ? "Starting renewal..."
+                    : "Starting payment..."
+                  : currentPlan === "pro"
+                    ? "Renew Founding Pro - ₦5,000"
+                    : "Upgrade to Founding Pro"}
             </button>
           </section>
         </div>
