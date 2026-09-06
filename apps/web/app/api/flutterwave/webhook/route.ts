@@ -256,6 +256,102 @@ function getUserIdFromTxRef(
     .trim();
 }
 
+
+// ========================================================
+// VERIFY TRANSACTION WITH LIVE/TEST KEY FALLBACK
+// ========================================================
+
+async function verifyFlutterwaveTransaction(
+  transactionId: string,
+  liveSecretKey: string,
+  testSecretKey?: string
+): Promise<{
+  verificationData: FlutterwaveVerificationResponse;
+  verificationMode: "live" | "test";
+}> {
+  const candidates: Array<{
+    mode: "live" | "test";
+    key: string;
+  }> = [
+    {
+      mode: "live",
+      key: liveSecretKey,
+    },
+  ];
+
+  if (
+    testSecretKey &&
+    testSecretKey !== liveSecretKey
+  ) {
+    candidates.push({
+      mode: "test",
+      key: testSecretKey,
+    });
+  }
+
+  let lastErrorMessage =
+    "Flutterwave verification failed.";
+
+  for (const candidate of candidates) {
+    const response =
+      await fetch(
+        `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(
+          transactionId
+        )}/verify`,
+        {
+          method: "GET",
+
+          headers: {
+            Authorization:
+              `Bearer ${candidate.key}`,
+
+            "Content-Type":
+              "application/json",
+
+            Accept:
+              "application/json",
+          },
+
+          cache:
+            "no-store",
+        }
+      );
+
+    let data:
+      FlutterwaveVerificationResponse;
+
+    try {
+      data =
+        await response.json();
+    } catch {
+      lastErrorMessage =
+        `Invalid Flutterwave ${candidate.mode} verification response.`;
+
+      continue;
+    }
+
+    if (
+      response.ok &&
+      data.status === "success" &&
+      data.data
+    ) {
+      return {
+        verificationData: data,
+        verificationMode:
+          candidate.mode,
+      };
+    }
+
+    lastErrorMessage =
+      data.message ||
+      `Flutterwave ${candidate.mode} verification failed.`;
+  }
+
+  throw new Error(
+    lastErrorMessage
+  );
+}
+
 // ========================================================
 // WEBHOOK
 // ========================================================
@@ -271,6 +367,10 @@ export async function POST(
     const secretKey =
       process.env
         .FLUTTERWAVE_SECRET_KEY;
+
+    const testSecretKey =
+      process.env
+        .FLUTTERWAVE_TEST_SECRET_KEY;
 
     if (
       !secretHash ||
@@ -402,52 +502,15 @@ export async function POST(
     // RE-VERIFY WITH FLUTTERWAVE
     // ====================================================
 
-    const verificationResponse =
-      await fetch(
-        `https://api.flutterwave.com/v3/transactions/${encodeURIComponent(
-          transactionId
-        )}/verify`,
-        {
-          method: "GET",
-
-          headers: {
-            Authorization:
-              `Bearer ${secretKey}`,
-
-            "Content-Type":
-              "application/json",
-
-            Accept:
-              "application/json",
-          },
-
-          cache:
-            "no-store",
-        }
+    const {
+      verificationData,
+      verificationMode,
+    } =
+      await verifyFlutterwaveTransaction(
+        transactionId,
+        secretKey,
+        testSecretKey
       );
-
-    let verificationData:
-      FlutterwaveVerificationResponse;
-
-    try {
-      verificationData =
-        await verificationResponse.json();
-    } catch {
-      throw new Error(
-        "Invalid Flutterwave verification response."
-      );
-    }
-
-    if (
-      !verificationResponse.ok ||
-      verificationData.status !==
-        "success"
-    ) {
-      throw new Error(
-        verificationData.message ||
-          "Flutterwave verification failed."
-      );
-    }
 
     const transaction =
       verificationData.data;
@@ -868,6 +931,9 @@ export async function POST(
             verificationSource:
               "flutterwave_webhook",
 
+            flutterwaveEnvironment:
+              verificationMode,
+
             verifiedAt:
               FieldValue
                 .serverTimestamp(),
@@ -901,6 +967,7 @@ export async function POST(
         transactionId:
           paymentId,
         userId,
+        verificationMode,
       }
     );
 
