@@ -2,6 +2,8 @@ import base64
 import json
 import os
 import uuid
+import time
+import threading
 from pathlib import Path
 from urllib.parse import quote
 
@@ -47,6 +49,87 @@ MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
 MAX_MULTI_IMAGES = 5
 MIN_MULTI_IMAGES = 2
 FREE_DAILY_LIMIT = 3
+
+# =========================================================
+# GENERATION RATE LIMITING
+# =========================================================
+
+RATE_LIMIT_WINDOW_SECONDS = 60
+
+RATE_LIMITS = {
+    "text": 4,
+    "image": 3,
+    "multi": 2,
+}
+
+_rate_limit_lock = threading.Lock()
+_rate_limit_requests: dict[str, list[float]] = {}
+
+
+def enforce_generation_rate_limit(
+    uid: str,
+    mode: str,
+) -> None:
+    """
+    Prevent one authenticated user from starting too many
+    expensive video-generation jobs in a short period.
+
+    text:  maximum 4 requests per minute
+    image: maximum 3 requests per minute
+    multi: maximum 2 requests per minute
+    """
+
+    now = time.monotonic()
+
+    maximum_requests = RATE_LIMITS.get(
+        mode,
+        2,
+    )
+
+    key = f"{uid}:{mode}"
+
+    with _rate_limit_lock:
+        existing = _rate_limit_requests.get(
+            key,
+            [],
+        )
+
+        cutoff = now - RATE_LIMIT_WINDOW_SECONDS
+
+        recent = [
+            timestamp
+            for timestamp in existing
+            if timestamp > cutoff
+        ]
+
+        if len(recent) >= maximum_requests:
+            oldest = min(recent)
+
+            retry_after = max(
+                1,
+                int(
+                    RATE_LIMIT_WINDOW_SECONDS
+                    - (now - oldest)
+                )
+                + 1,
+            )
+
+            _rate_limit_requests[key] = recent
+
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "Too many generation requests. "
+                    f"Please wait {retry_after} seconds "
+                    "before trying again."
+                ),
+                headers={
+                    "Retry-After": str(retry_after),
+                },
+            )
+
+        recent.append(now)
+        _rate_limit_requests[key] = recent
 FREE_VIDEO_STYLES = {"cinematic", "church", "social"}
 FREE_CAMERA_MOTIONS = {"cinematic", "static"}
 
@@ -493,6 +576,12 @@ async def generate_video(
 ):
     local_video_path = None
     uid = verify_firebase_user(authorization)
+
+    enforce_generation_rate_limit(
+        uid,
+        "text",
+    )
+
     is_pro = reserve_generation(uid, mode="text", duration=data.duration, video_style=data.video_style, aspect_ratio=data.aspect_ratio, motion_style=data.motion_style, caption_style=data.caption_style, caption_position=data.caption_position, show_watermark=data.show_watermark, watermark=data.watermark, watermark_position=data.watermark_position, watermark_opacity=data.watermark_opacity, background_music=data.background_music)
 
     try:
@@ -690,6 +779,12 @@ async def generate_from_image(
             )
 
         uid = verify_firebase_user(authorization)
+
+        enforce_generation_rate_limit(
+            uid,
+            "image",
+        )
+
         is_pro = reserve_generation(uid, mode="image", duration=duration, video_style=video_style, aspect_ratio=aspect_ratio, motion_style=motion_style, caption_style=caption_style, caption_position=caption_position, show_watermark=show_watermark, watermark=watermark, watermark_position=watermark_position, watermark_opacity=watermark_opacity, background_music=background_music)
 
         ext = Path(
@@ -813,6 +908,12 @@ async def generate_from_images(
 
     try:
         uid = verify_firebase_user(authorization)
+
+        enforce_generation_rate_limit(
+            uid,
+            "multi",
+        )
+
         if len(images) < MIN_MULTI_IMAGES or len(images) > MAX_MULTI_IMAGES:
             raise HTTPException(
                 status_code=422,
