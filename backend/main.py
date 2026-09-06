@@ -55,6 +55,7 @@ FREE_DAILY_LIMIT = 3
 # =========================================================
 
 RATE_LIMIT_WINDOW_SECONDS = 60
+PRO_HOURLY_LIMIT = 6
 
 RATE_LIMITS = {
     "text": 4,
@@ -228,6 +229,11 @@ def utc_today_key() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def utc_hour_key() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d-%H")
+
+
 def active_pro_from_data(data: dict) -> bool:
     from datetime import datetime, timezone
     if data.get("plan") != "pro" or data.get("subscriptionStatus") != "active":
@@ -266,56 +272,180 @@ def free_restriction(*, mode: str, duration: int, video_style: str = "cinematic"
 
 
 def reserve_generation(uid: str, **features) -> bool:
+    """
+    Reserve one generation server-side.
+
+    Free:
+      - existing feature restrictions
+      - maximum 3 generations per UTC day
+
+    Founding Pro:
+      - advanced features allowed
+      - maximum 6 generation starts per UTC hour
+        as a fair-use abuse-protection ceiling
+
+    Returns True for active Pro and False for Free.
+    """
     init_firebase()
     db = firestore.client()
     user_ref = db.collection("users").document(uid)
     transaction = db.transaction()
     today = utc_today_key()
+    hour_key = utc_hour_key()
 
     @firestore.transactional
     def reserve(tx):
         snap = user_ref.get(transaction=tx)
         data = snap.to_dict() or {}
+
         if active_pro_from_data(data):
+            hourly_used = int(
+                data.get("hourlyGenerationCount") or 0
+            )
+
+            if str(
+                data.get("hourlyGenerationKey") or ""
+            ) != hour_key:
+                hourly_used = 0
+
+            if hourly_used >= PRO_HOURLY_LIMIT:
+                raise HTTPException(
+                    status_code=429,
+                    detail=(
+                        "Founding Pro fair-use limit reached for this hour. "
+                        "Please try again when the next hourly window begins."
+                    ),
+                    headers={
+                        "Retry-After": "3600",
+                    },
+                )
+
+            tx.set(
+                user_ref,
+                {
+                    "hourlyGenerationKey": hour_key,
+                    "hourlyGenerationCount": hourly_used + 1,
+                    "updatedAt": firestore.SERVER_TIMESTAMP,
+                },
+                merge=True,
+            )
+
             return True
+
         restriction = free_restriction(**features)
+
         if restriction:
-            raise HTTPException(status_code=403, detail=restriction)
-        used = int(data.get("dailyGenerationCount") or 0)
-        if str(data.get("dailyGenerationDate") or "") != today:
+            raise HTTPException(
+                status_code=403,
+                detail=restriction,
+            )
+
+        used = int(
+            data.get("dailyGenerationCount") or 0
+        )
+
+        if str(
+            data.get("dailyGenerationDate") or ""
+        ) != today:
             used = 0
+
         if used >= FREE_DAILY_LIMIT:
-            raise HTTPException(status_code=429, detail="You have reached your free daily limit. Upgrade to Founding Pro for unlimited generations.")
-        tx.set(user_ref, {
-            "dailyGenerationDate": today,
-            "dailyGenerationCount": used + 1,
-            "generationLimit": FREE_DAILY_LIMIT,
-            "updatedAt": firestore.SERVER_TIMESTAMP,
-        }, merge=True)
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "You have reached your free daily limit. "
+                    "Upgrade to Founding Pro for unlimited generations."
+                ),
+            )
+
+        tx.set(
+            user_ref,
+            {
+                "dailyGenerationDate": today,
+                "dailyGenerationCount": used + 1,
+                "generationLimit": FREE_DAILY_LIMIT,
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+
         return False
 
     return reserve(transaction)
 
 
-def rollback_free_generation(uid: str) -> None:
+def rollback_generation(
+    uid: str,
+    is_pro: bool,
+) -> None:
+    """
+    Return a reserved generation slot when rendering fails.
+
+    This prevents failed jobs from consuming either:
+      - a Free daily generation
+      - a Pro hourly fair-use slot
+    """
     try:
         init_firebase()
         db = firestore.client()
         user_ref = db.collection("users").document(uid)
         transaction = db.transaction()
         today = utc_today_key()
+        hour_key = utc_hour_key()
+
         @firestore.transactional
         def rollback(tx):
             snap = user_ref.get(transaction=tx)
             data = snap.to_dict() or {}
-            if str(data.get("dailyGenerationDate") or "") != today:
+
+            if is_pro:
+                if str(
+                    data.get("hourlyGenerationKey") or ""
+                ) != hour_key:
+                    return
+
+                used = int(
+                    data.get("hourlyGenerationCount") or 0
+                )
+
+                if used > 0:
+                    tx.set(
+                        user_ref,
+                        {
+                            "hourlyGenerationCount": used - 1,
+                            "updatedAt": firestore.SERVER_TIMESTAMP,
+                        },
+                        merge=True,
+                    )
+
                 return
-            used = int(data.get("dailyGenerationCount") or 0)
+
+            if str(
+                data.get("dailyGenerationDate") or ""
+            ) != today:
+                return
+
+            used = int(
+                data.get("dailyGenerationCount") or 0
+            )
+
             if used > 0:
-                tx.set(user_ref, {"dailyGenerationCount": used - 1, "updatedAt": firestore.SERVER_TIMESTAMP}, merge=True)
+                tx.set(
+                    user_ref,
+                    {
+                        "dailyGenerationCount": used - 1,
+                        "updatedAt": firestore.SERVER_TIMESTAMP,
+                    },
+                    merge=True,
+                )
+
         rollback(transaction)
+
     except Exception as exc:
-        print("NaijaVid usage rollback warning:", str(exc))
+        print(
+            "NaijaVid usage rollback warning:",
+            str(exc),
+        )
 
 
 # =========================================================
@@ -628,8 +758,10 @@ async def generate_video(
         raise
 
     except Exception as exc:
-        if not is_pro:
-            rollback_free_generation(uid)
+        rollback_generation(
+            uid,
+            is_pro,
+        )
         raise HTTPException(
             status_code=500,
             detail=(
@@ -855,8 +987,11 @@ async def generate_from_image(
         raise
 
     except Exception as exc:
-        if "is_pro" in locals() and not is_pro:
-            rollback_free_generation(uid)
+        if "is_pro" in locals():
+            rollback_generation(
+                uid,
+                is_pro,
+            )
         raise HTTPException(
             status_code=500,
             detail=(
@@ -1070,8 +1205,11 @@ async def generate_from_images(
     except HTTPException:
         raise
     except Exception as exc:
-        if "is_pro" in locals() and not is_pro:
-            rollback_free_generation(uid)
+        if "is_pro" in locals():
+            rollback_generation(
+                uid,
+                is_pro,
+            )
         raise HTTPException(
             status_code=500,
             detail=f"Multiple-image generation failed: {exc}",
