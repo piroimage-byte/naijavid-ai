@@ -12,6 +12,10 @@ import {
   getFirestore,
 } from "firebase-admin/firestore";
 
+import {
+  getStorage,
+} from "firebase-admin/storage";
+
 type FirebaseServiceAccount = {
   project_id: string;
   client_email: string;
@@ -77,6 +81,15 @@ function getAdminApp() {
   const serviceAccount =
     getServiceAccount();
 
+  const storageBucket =
+    process.env.FIREBASE_STORAGE_BUCKET?.trim();
+
+  if (!storageBucket) {
+    throw new Error(
+      "Missing FIREBASE_STORAGE_BUCKET"
+    );
+  }
+
   return initializeApp({
     credential: cert({
       projectId:
@@ -88,6 +101,8 @@ function getAdminApp() {
       privateKey:
         serviceAccount.private_key,
     }),
+
+    storageBucket,
   });
 }
 
@@ -101,4 +116,14 @@ export function getAdminAuth() {
   return getAuth(
     getAdminApp()
   );
+}
+
+export function getAdminStorage() {
+  return getStorage(
+    getAdminApp()
+  );
+}
+
+export function getAdminBucket() {
+  return getAdminStorage().bucket();
 }

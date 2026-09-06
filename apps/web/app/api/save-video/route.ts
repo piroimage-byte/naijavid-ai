@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { FieldValue } from "firebase-admin/firestore";
+import {
+  FieldValue,
+  Timestamp,
+} from "firebase-admin/firestore";
 
 import {
   getAdminAuth,
@@ -37,14 +40,70 @@ type SaveVideoBody = {
   sceneTransition?: string;
 };
 
+const FREE_RETENTION_DAYS = 7;
+const PRO_RETENTION_DAYS = 30;
+
+function getExpiryDate(
+  value: unknown
+): Date | null {
+  if (!value) return null;
+
+  if (value instanceof Timestamp) {
+    return value.toDate();
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toDate" in value &&
+    typeof (
+      value as { toDate?: unknown }
+    ).toDate === "function"
+  ) {
+    try {
+      return (
+        value as { toDate: () => Date }
+      ).toDate();
+    } catch {
+      return null;
+    }
+  }
+
+  if (
+    typeof value === "string" ||
+    typeof value === "number"
+  ) {
+    const parsed = new Date(value);
+
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function hasActivePro(
+  userData: Record<string, unknown>
+) {
+  const expiry =
+    getExpiryDate(
+      userData.subscriptionExpiresAt
+    );
+
+  return (
+    userData.plan === "pro" &&
+    userData.subscriptionStatus ===
+      "active" &&
+    expiry !== null &&
+    expiry.getTime() > Date.now()
+  );
+}
+
 export async function POST(
   request: NextRequest
 ) {
   try {
-    // =====================================================
-    // VERIFY FIREBASE AUTHENTICATION
-    // =====================================================
-
     const authorization =
       request.headers.get("authorization");
 
@@ -72,7 +131,8 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-          error: "Authentication token is missing.",
+          error:
+            "Authentication token is missing.",
         },
         {
           status: 401,
@@ -104,10 +164,6 @@ export async function POST(
       );
     }
 
-    // =====================================================
-    // UID COMES ONLY FROM VERIFIED FIREBASE TOKEN
-    // =====================================================
-
     const userId =
       decodedToken.uid;
 
@@ -124,10 +180,6 @@ export async function POST(
       );
     }
 
-    // =====================================================
-    // READ REQUEST BODY
-    // =====================================================
-
     const body =
       (await request.json()) as SaveVideoBody;
 
@@ -138,28 +190,19 @@ export async function POST(
       duration,
       videoUrl,
       watermark,
-
       aspectRatio,
       cameraMotion,
-
       showCaption,
       captionStyle,
       captionPosition,
-
       showWatermark,
       watermarkPosition,
       watermarkOpacity,
-
       backgroundMusic,
       musicVolume,
-
       imageCount,
       sceneTransition,
     } = body;
-
-    // =====================================================
-    // VALIDATE VIDEO URL
-    // =====================================================
 
     if (
       !videoUrl ||
@@ -191,10 +234,6 @@ export async function POST(
       );
     }
 
-    // =====================================================
-    // NORMALIZE MODE
-    // =====================================================
-
     const normalizedMode =
       typeof mode === "string"
         ? mode.trim().toLowerCase()
@@ -216,18 +255,12 @@ export async function POST(
           success: false,
           error:
             "mode must be text, image, or multi.",
-          receivedMode:
-            normalizedMode || null,
         },
         {
           status: 400,
         }
       );
     }
-
-    // =====================================================
-    // NORMALIZE DURATION
-    // =====================================================
 
     const parsedDuration =
       typeof duration === "number"
@@ -240,23 +273,42 @@ export async function POST(
         ? parsedDuration
         : 5;
 
-    // =====================================================
-    // FIREBASE ADMIN
-    // =====================================================
-
     const db =
       getAdminDb();
 
-    // =====================================================
-    // SAVE VIDEO HISTORY
-    // =====================================================
+    const userSnapshot =
+      await db
+        .collection("users")
+        .doc(userId)
+        .get();
+
+    const userData =
+      userSnapshot.exists
+        ? userSnapshot.data() || {}
+        : {};
+
+    const isPro =
+      hasActivePro(userData);
+
+    const retentionDays =
+      isPro
+        ? PRO_RETENTION_DAYS
+        : FREE_RETENTION_DAYS;
+
+    const expiresAt =
+      new Date(
+        Date.now() +
+          retentionDays *
+            24 *
+            60 *
+            60 *
+            1000
+      );
 
     const videoDocument =
       await db
         .collection("videoHistory")
         .add({
-          // IMPORTANT:
-          // This UID came from the verified Firebase token.
           userId,
 
           prompt:
@@ -283,10 +335,6 @@ export async function POST(
               ? watermark.trim()
               : "naijavid.ai",
 
-          // =================================================
-          // VIDEO SETTINGS
-          // =================================================
-
           aspectRatio:
             typeof aspectRatio === "string"
               ? aspectRatio
@@ -296,10 +344,6 @@ export async function POST(
             typeof cameraMotion === "string"
               ? cameraMotion
               : null,
-
-          // =================================================
-          // CAPTION SETTINGS
-          // =================================================
 
           showCaption:
             typeof showCaption === "boolean"
@@ -316,10 +360,6 @@ export async function POST(
               ? captionPosition
               : null,
 
-          // =================================================
-          // WATERMARK SETTINGS
-          // =================================================
-
           showWatermark:
             typeof showWatermark === "boolean"
               ? showWatermark
@@ -335,10 +375,6 @@ export async function POST(
               ? watermarkOpacity
               : null,
 
-          // =================================================
-          // BACKGROUND MUSIC
-          // =================================================
-
           backgroundMusic:
             typeof backgroundMusic === "string"
               ? backgroundMusic
@@ -348,10 +384,6 @@ export async function POST(
             typeof musicVolume === "number"
               ? musicVolume
               : null,
-
-          // =================================================
-          // MULTIPLE IMAGE SETTINGS
-          // =================================================
 
           imageCount:
             typeof imageCount === "number"
@@ -370,52 +402,48 @@ export async function POST(
           status:
             "completed",
 
+          planAtGeneration:
+            isPro ? "pro" : "free",
+
+          retentionDays,
+
           createdAt:
             FieldValue.serverTimestamp(),
-        });
 
-    // =====================================================
-    // SERVER LOG
-    // =====================================================
+          expiresAt:
+            Timestamp.fromDate(expiresAt),
+        });
 
     console.log(
       "VIDEO SAVED TO HISTORY:",
       {
         id:
           videoDocument.id,
-
         userId,
-
         mode:
           normalizedMode,
-
         duration:
           safeDuration,
-
-        videoUrl:
-          normalizedVideoUrl,
+        retentionDays,
+        expiresAt:
+          expiresAt.toISOString(),
       }
     );
-
-    // =====================================================
-    // SUCCESS
-    // =====================================================
 
     return NextResponse.json(
       {
         success: true,
-
         message:
           "Video saved to history.",
-
         id:
           videoDocument.id,
-
         mode:
           normalizedMode,
-
         duration:
           safeDuration,
+        retentionDays,
+        expiresAt:
+          expiresAt.toISOString(),
       },
       {
         status: 201,
@@ -425,22 +453,18 @@ export async function POST(
     console.error(
       "========== SAVE VIDEO ERROR =========="
     );
-
     console.error(
       "MESSAGE:",
       error?.message
     );
-
     console.error(
       "CODE:",
       error?.code
     );
-
     console.error(
       "STACK:",
       error?.stack
     );
-
     console.error(
       "======================================"
     );
@@ -448,11 +472,9 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-
         error:
           error?.message ||
           "Unable to save video.",
-
         code:
           error?.code ||
           null,
