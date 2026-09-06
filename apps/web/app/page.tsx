@@ -205,7 +205,27 @@ export default function HomePage() {
       {/* FOOTER */}
 
       <footer className="max-w-6xl mx-auto border-t border-white/10 pt-8 pb-4 text-center text-white/40 text-sm">
-        © {new Date().getFullYear()} NaijaVid AI. All rights reserved.
+        <div className="mb-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+          <button
+            type="button"
+            onClick={() => router.push("/privacy")}
+            className="hover:text-white transition"
+          >
+            Privacy Policy
+          </button>
+
+          <button
+            type="button"
+            onClick={() => router.push("/terms")}
+            className="hover:text-white transition"
+          >
+            Terms of Service
+          </button>
+        </div>
+
+        <p>
+          © {new Date().getFullYear()} NaijaVid AI. All rights reserved.
+        </p>
       </footer>
     </main>
   );

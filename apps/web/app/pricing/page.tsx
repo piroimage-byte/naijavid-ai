@@ -537,9 +537,37 @@ export default function PricingPage() {
           </section>
         </div>
 
+        {/* LEGAL LINKS */}
+
+        <div className="mt-8 sm:mt-10 flex flex-wrap items-center gap-x-5 gap-y-3 text-sm text-white/50">
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                "/privacy"
+              )
+            }
+            className="hover:text-white"
+          >
+            Privacy Policy
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                "/terms"
+              )
+            }
+            className="hover:text-white"
+          >
+            Terms of Service
+          </button>
+        </div>
+
         {/* BACK */}
 
-        <div className="mt-8 sm:mt-10">
+        <div className="mt-6 sm:mt-8">
           <button
             type="button"
             onClick={() =>
