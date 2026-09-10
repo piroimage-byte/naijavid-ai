@@ -174,17 +174,6 @@ def init_firebase() -> None:
             decoded_json
         )
 
-        print(
-            "FIREBASE SERVICE ACCOUNT:",
-            service_account.get("client_email"),
-            flush=True,
-        )
-
-        print(
-            "FIREBASE PRIVATE KEY ID:",
-            service_account.get("private_key_id"),
-            flush=True,
-        )
 
     except Exception as exc:
         raise RuntimeError(
