@@ -454,6 +454,38 @@ def wrap_text(
 
 # =========================================================
 # DURATION
+
+
+# =========================================================
+# USER PROMPT SANITIZER
+# =========================================================
+
+def clean_user_prompt(text: str) -> str:
+    """Keep only user-facing prompt text and strip internal style instructions."""
+    cleaned = (text or "").strip()
+
+    if not cleaned:
+        return ""
+
+    markers = [
+        "Visual style instruction:",
+        "Style instruction:",
+        "Internal visual instruction:",
+    ]
+
+    lowered = cleaned.lower()
+    cut_at = None
+
+    for marker in markers:
+        index = lowered.find(marker.lower())
+        if index != -1 and (cut_at is None or index < cut_at):
+            cut_at = index
+
+    if cut_at is not None:
+        cleaned = cleaned[:cut_at].rstrip()
+
+    return cleaned
+
 # =========================================================
 
 def sanitize_duration(
@@ -519,9 +551,7 @@ def build_visual_prompt(
     language: str,
 ) -> str:
 
-    cleaned_prompt = (
-        prompt or ""
-    ).strip()
+    cleaned_prompt = clean_user_prompt(prompt)
 
     if not cleaned_prompt:
         raise ValueError(
@@ -779,9 +809,7 @@ def generate_fallback_visual(
         )
     )
 
-    cleaned_prompt = (
-        prompt or ""
-    ).strip()
+    cleaned_prompt = clean_user_prompt(prompt)
 
     if not cleaned_prompt:
         raise ValueError(
@@ -2305,6 +2333,10 @@ def generate_multi_image_video(
     scene_prompts: list[str] | None = None,
     scene_durations: list[int] | None = None,
 ) -> str:
+
+    prompt = clean_user_prompt(prompt)
+    if not prompt:
+        raise ValueError("Prompt is required.")
     """Create one video from 2-5 uploaded images with optional per-scene prompts/timing."""
     if len(image_paths) < 2 or len(image_paths) > 5:
         raise ValueError("Multiple-image video requires between 2 and 5 images.")
@@ -2313,14 +2345,14 @@ def generate_multi_image_video(
     video_width, video_height = get_video_dimensions(aspect_ratio)
     motion_style = normalize_motion_style(motion_style)
     scene_transition = normalize_scene_transition(scene_transition)
-    cleaned_prompt = (prompt or "").strip()
+    cleaned_prompt = clean_user_prompt(prompt)
     scene_count = len(image_paths)
 
     if scene_prompts is None:
         scene_prompts = [cleaned_prompt] * scene_count
     if len(scene_prompts) != scene_count:
         raise ValueError("Scene prompt count must match image count.")
-    scene_prompts = [(value or "").strip() for value in scene_prompts]
+    scene_prompts = [clean_user_prompt(value) for value in scene_prompts]
 
     if scene_durations is None:
         base = max(1, int(duration) // scene_count)
@@ -2454,6 +2486,10 @@ def generate_text_video(
     background_music: str = "none",
     music_volume: int = 15,
 ) -> str:
+
+    prompt = clean_user_prompt(prompt)
+    if not prompt:
+        raise ValueError("Prompt is required.")
 
     language = (
         normalize_language(
@@ -2626,7 +2662,7 @@ def generate_image_video(
         motion_style
     )
 
-    cleaned_prompt = (prompt or "").strip()
+    cleaned_prompt = clean_user_prompt(prompt)
 
     canvas = None
     frame_path = None
