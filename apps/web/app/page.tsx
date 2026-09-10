@@ -17,10 +17,13 @@ export default function HomePage() {
   const [checkingAuth, setCheckingAuth] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setCheckingAuth(false);
-    });
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (firebaseUser) => {
+        setUser(firebaseUser);
+        setCheckingAuth(false);
+      }
+    );
 
     return () => unsubscribe();
   }, []);
@@ -30,7 +33,10 @@ export default function HomePage() {
       await signOut(auth);
       router.refresh();
     } catch (error) {
-      console.error("SIGN OUT ERROR:", error);
+      console.error(
+        "SIGN OUT ERROR:",
+        error
+      );
     }
   }
 
@@ -43,189 +49,560 @@ export default function HomePage() {
   }
 
   return (
-    <main className="min-h-screen bg-black text-white px-6 py-10">
+    <main className="min-h-screen bg-black text-white">
       {/* HEADER */}
 
-      <header className="flex items-center justify-between max-w-6xl mx-auto mb-12 gap-6">
-        <h1
-          onClick={() => router.push("/")}
-          className="text-2xl font-bold cursor-pointer"
-        >
-          NaijaVid AI
-        </h1>
+      <header className="border-b border-white/10 bg-black/90 px-4 py-5 backdrop-blur sm:px-6">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={() =>
+              router.push("/")
+            }
+            className="text-2xl font-extrabold tracking-tight"
+          >
+            NaijaVid AI
+          </button>
 
-        <div className="flex items-center gap-3 flex-wrap justify-end">
-          {!checkingAuth && !user && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {!checkingAuth &&
+              !user && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    router.push(
+                      "/login"
+                    )
+                  }
+                  className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium hover:bg-white/10"
+                >
+                  Sign In
+                </button>
+              )}
+
             <button
               type="button"
-              onClick={() => router.push("/login")}
-              className="px-4 py-2 border border-white/20 rounded-lg hover:bg-white/10 transition"
+              onClick={() =>
+                router.push(
+                  "/pricing"
+                )
+              }
+              className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium hover:bg-white/10"
             >
-              Sign In
+              Pricing
             </button>
-          )}
 
-          <button
-            type="button"
-            onClick={() => router.push("/pricing")}
-            className="px-4 py-2 border border-white/20 rounded-lg hover:bg-white/10 transition"
-          >
-            Pricing
-          </button>
+            {!checkingAuth &&
+              user && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push(
+                        "/generator"
+                      )
+                    }
+                    className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium hover:bg-white/10"
+                  >
+                    Generator
+                  </button>
 
-          {!checkingAuth && user && (
-            <>
-              <button
-                type="button"
-                onClick={() => router.push("/generator")}
-                className="px-4 py-2 border border-white/20 rounded-lg hover:bg-white/10 transition"
-              >
-                Generator
-              </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push(
+                        "/history"
+                      )
+                    }
+                    className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium hover:bg-white/10"
+                  >
+                    History
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => router.push("/history")}
-                className="px-4 py-2 border border-white/20 rounded-lg hover:bg-white/10 transition"
-              >
-                History
-              </button>
+                  <button
+                    type="button"
+                    onClick={
+                      handleSignOut
+                    }
+                    className="rounded-lg border border-red-500/40 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-500/10"
+                  >
+                    Sign Out
+                  </button>
+                </>
+              )}
 
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="px-4 py-2 border border-red-500/40 text-red-300 rounded-lg hover:bg-red-500/10 transition"
-              >
-                Sign Out
-              </button>
-            </>
-          )}
-
-          <button
-            type="button"
-            onClick={handleStartCreating}
-            className="px-4 py-2 bg-white text-black rounded-lg font-medium hover:bg-gray-200 transition"
-          >
-            Start Creating
-          </button>
+            <button
+              type="button"
+              onClick={
+                handleStartCreating
+              }
+              className="rounded-lg bg-white px-4 py-2 text-sm font-bold text-black hover:bg-gray-200"
+            >
+              Start Creating
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* AUTH STATUS */}
+      {/* SIGNED-IN STATUS */}
 
-      {!checkingAuth && user && (
-        <section className="max-w-6xl mx-auto mb-10">
-          <div className="rounded-2xl border border-green-500/20 bg-green-500/5 px-5 py-4">
-            <p className="text-sm text-white/70">
-              Signed in as{" "}
-              <span className="text-white font-medium">
-                {user.displayName || user.email || "NaijaVid AI User"}
-              </span>
-            </p>
-          </div>
-        </section>
-      )}
+      {!checkingAuth &&
+        user && (
+          <section className="mx-auto max-w-6xl px-4 pt-6 sm:px-6">
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4">
+              <p className="text-sm text-white/70">
+                Welcome back,{" "}
+                <span className="font-semibold text-white">
+                  {user.displayName ||
+                    user.email ||
+                    "NaijaVid AI User"}
+                </span>
+              </p>
+            </div>
+          </section>
+        )}
 
       {/* HERO */}
 
-      <section className="max-w-4xl mx-auto text-center mb-16">
-        <h2 className="text-5xl font-bold mb-6 leading-tight">
-          Create AI Videos in Seconds
-        </h2>
+      <section className="mx-auto max-w-6xl px-4 pb-20 pt-20 text-center sm:px-6 sm:pt-28">
+        <div className="mx-auto max-w-4xl">
+          <div className="mb-6 inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-300">
+            Built for Nigerian creators, churches, businesses and storytellers
+          </div>
 
-        <p className="text-white/70 text-lg mb-8">
-          Turn text or images into short videos instantly. Built for creators,
-          marketers, and businesses.
-        </p>
+          <h1 className="text-4xl font-black leading-tight sm:text-6xl">
+            Create Nigerian-Focused
+            AI Videos in Minutes
+          </h1>
 
-        <button
-          type="button"
-          onClick={handleStartCreating}
-          className="px-6 py-3 bg-white text-black rounded-xl font-semibold text-lg hover:bg-gray-200 transition"
-        >
-          {user ? "Open Generator" : "Generate Video"}
-        </button>
+          <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-white/70 sm:text-xl">
+            Turn your text and images
+            into ready-to-share videos
+            with narration, captions,
+            camera motion, music,
+            watermark controls and
+            social-media formats.
+          </p>
+
+          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={
+                handleStartCreating
+              }
+              className="w-full rounded-xl bg-emerald-500 px-7 py-4 text-lg font-extrabold text-black hover:bg-emerald-400 sm:w-auto"
+            >
+              {user
+                ? "Open Generator"
+                : "Create Your First Video"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  "/pricing"
+                )
+              }
+              className="w-full rounded-xl border border-white/20 px-7 py-4 text-lg font-bold hover:bg-white/10 sm:w-auto"
+            >
+              View Plans
+            </button>
+          </div>
+
+          <p className="mt-4 text-sm text-white/40">
+            Start free. Upgrade only
+            when you need more.
+          </p>
+        </div>
+      </section>
+
+      {/* HOW IT WORKS */}
+
+      <section className="border-y border-white/10 bg-white/[0.02] px-4 py-16 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-10 text-center">
+            <h2 className="text-3xl font-extrabold">
+              Create a Video in 3
+              Simple Steps
+            </h2>
+
+            <p className="mt-3 text-white/60">
+              No professional editing
+              experience required.
+            </p>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-black p-6">
+              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 font-black text-black">
+                1
+              </div>
+
+              <h3 className="text-xl font-bold">
+                Add Your Content
+              </h3>
+
+              <p className="mt-3 leading-7 text-white/60">
+                Enter a text prompt,
+                upload one image, or
+                combine several images
+                into scenes.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black p-6">
+              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 font-black text-black">
+                2
+              </div>
+
+              <h3 className="text-xl font-bold">
+                Choose Your Style
+              </h3>
+
+              <p className="mt-3 leading-7 text-white/60">
+                Select aspect ratio,
+                camera motion, captions,
+                watermark, background
+                music and duration.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black p-6">
+              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 font-black text-black">
+                3
+              </div>
+
+              <h3 className="text-xl font-bold">
+                Generate & Share
+              </h3>
+
+              <p className="mt-3 leading-7 text-white/60">
+                Generate the video,
+                preview it, download it
+                and share it on your
+                preferred platform.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* USE CASES */}
+
+      <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
+        <div className="mb-10 text-center">
+          <h2 className="text-3xl font-extrabold">
+            Made for Real Nigerian
+            Content
+          </h2>
+
+          <p className="mt-3 text-white/60">
+            Use NaijaVid AI across
+            ministry, business,
+            education and social media.
+          </p>
+        </div>
+
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {[
+            {
+              title:
+                "Church & Ministry",
+              text:
+                "Create event promos, sermon highlights, Bible messages and church announcements.",
+            },
+            {
+              title:
+                "Business Advertising",
+              text:
+                "Turn product photos and promotional messages into short marketing videos.",
+            },
+            {
+              title:
+                "Social Media",
+              text:
+                "Create portrait, square and landscape videos for TikTok, Instagram, Facebook and WhatsApp.",
+            },
+            {
+              title:
+                "Storytelling",
+              text:
+                "Build short visual stories from prompts, images and multiple scenes.",
+            },
+            {
+              title:
+                "Education",
+              text:
+                "Turn lessons, explanations and learning materials into simple video content.",
+            },
+            {
+              title:
+                "Events",
+              text:
+                "Create invitation videos, countdown content and promotional clips for programmes.",
+            },
+          ].map(
+            (item) => (
+              <div
+                key={
+                  item.title
+                }
+                className="rounded-2xl border border-white/10 bg-white/[0.03] p-6"
+              >
+                <h3 className="text-xl font-bold">
+                  {item.title}
+                </h3>
+
+                <p className="mt-3 leading-7 text-white/60">
+                  {item.text}
+                </p>
+              </div>
+            )
+          )}
+        </div>
       </section>
 
       {/* FEATURES */}
 
-      <section className="max-w-6xl mx-auto grid md:grid-cols-3 gap-6 mb-20">
-        <div className="p-6 bg-white/5 border border-white/5 rounded-xl">
-          <h3 className="text-xl font-semibold mb-2">
-            Text to Video
-          </h3>
+      <section className="border-y border-white/10 bg-white/[0.02] px-4 py-20 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-10 text-center">
+            <h2 className="text-3xl font-extrabold">
+              Everything You Need to
+              Create
+            </h2>
+          </div>
 
-          <p className="text-white/60">
-            Convert simple prompts into engaging videos instantly.
-          </p>
-        </div>
+          <div className="grid gap-6 md:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-black p-6">
+              <h3 className="text-xl font-semibold">
+                Text to Video
+              </h3>
 
-        <div className="p-6 bg-white/5 border border-white/5 rounded-xl">
-          <h3 className="text-xl font-semibold mb-2">
-            Image to Video
-          </h3>
+              <p className="mt-3 leading-7 text-white/60">
+                Convert prompts and
+                written messages into
+                narrated short videos.
+              </p>
+            </div>
 
-          <p className="text-white/60">
-            Upload images and transform them into animated clips.
-          </p>
-        </div>
+            <div className="rounded-2xl border border-white/10 bg-black p-6">
+              <h3 className="text-xl font-semibold">
+                Image to Video
+              </h3>
 
-        <div className="p-6 bg-white/5 border border-white/5 rounded-xl">
-          <h3 className="text-xl font-semibold mb-2">
-            Nigerian Languages
-          </h3>
+              <p className="mt-3 leading-7 text-white/60">
+                Animate uploaded images
+                with cinematic motion,
+                captions and narration.
+              </p>
+            </div>
 
-          <p className="text-white/60">
-            Create content designed for Nigerian audiences and local languages.
-          </p>
+            <div className="rounded-2xl border border-white/10 bg-black p-6">
+              <h3 className="text-xl font-semibold">
+                Multiple Scenes
+              </h3>
+
+              <p className="mt-3 leading-7 text-white/60">
+                Combine several images
+                into one video with
+                scene timing and
+                transitions.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black p-6">
+              <h3 className="text-xl font-semibold">
+                Social Formats
+              </h3>
+
+              <p className="mt-3 leading-7 text-white/60">
+                Generate landscape,
+                portrait and square
+                video layouts.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black p-6">
+              <h3 className="text-xl font-semibold">
+                Captions & Watermarks
+              </h3>
+
+              <p className="mt-3 leading-7 text-white/60">
+                Control caption style,
+                caption position,
+                branding and watermark
+                opacity.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black p-6">
+              <h3 className="text-xl font-semibold">
+                Nigerian Language
+                Focus
+              </h3>
+
+              <p className="mt-3 leading-7 text-white/60">
+                Built with Nigerian
+                audiences in mind, with
+                expanded native-language
+                voice support continuing
+                to roll out.
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* PRO CTA */}
+      {/* FREE VS PRO */}
 
-      <section className="max-w-4xl mx-auto text-center mb-20">
-        <h3 className="text-3xl font-bold mb-4">
-          Unlock Founding Pro
-        </h3>
+      <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
+        <div className="mb-10 text-center">
+          <h2 className="text-3xl font-extrabold">
+            Start Free, Upgrade When
+            Ready
+          </h2>
+        </div>
 
-        <p className="text-white/70 mb-6">
-          Get unlimited generations during the introductory launch period,
-          subject to fair use.
-        </p>
+        <div className="mx-auto grid max-w-4xl gap-6 md:grid-cols-2">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-7">
+            <div className="text-sm font-bold uppercase tracking-wider text-white/50">
+              Free
+            </div>
 
-        <button
-          type="button"
-          onClick={() => router.push("/pricing")}
-          className="px-6 py-3 bg-purple-600 rounded-xl font-semibold hover:bg-purple-500 transition"
-        >
-          View Founding Pro
-        </button>
+            <h3 className="mt-3 text-3xl font-extrabold">
+              Test NaijaVid
+            </h3>
+
+            <p className="mt-3 text-white/60">
+              Create up to 3 videos per
+              day and experience the
+              platform before upgrading.
+            </p>
+
+            <button
+              type="button"
+              onClick={
+                handleStartCreating
+              }
+              className="mt-7 w-full rounded-xl border border-white/20 px-5 py-3 font-bold hover:bg-white/10"
+            >
+              Start Free
+            </button>
+          </div>
+
+          <div className="rounded-3xl border border-purple-500/40 bg-purple-500/10 p-7">
+            <div className="text-sm font-bold uppercase tracking-wider text-purple-300">
+              Founding Pro
+            </div>
+
+            <h3 className="mt-3 text-3xl font-extrabold">
+              Create More
+            </h3>
+
+            <p className="mt-3 text-white/70">
+              Unlock Pro generation
+              features and higher usage
+              during the introductory
+              launch period, subject to
+              fair use.
+            </p>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  "/pricing"
+                )
+              }
+              className="mt-7 w-full rounded-xl bg-purple-600 px-5 py-3 font-bold hover:bg-purple-500"
+            >
+              View Founding Pro
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* FINAL CTA */}
+
+      <section className="px-4 pb-20 sm:px-6">
+        <div className="mx-auto max-w-5xl rounded-3xl border border-emerald-500/20 bg-emerald-500/10 px-6 py-12 text-center sm:px-10">
+          <h2 className="text-3xl font-black sm:text-4xl">
+            Your Next Video Can Start
+            With One Idea
+          </h2>
+
+          <p className="mx-auto mt-4 max-w-2xl text-white/70">
+            Enter your message, choose
+            your video style and let
+            NaijaVid turn it into
+            something you can share.
+          </p>
+
+          <button
+            type="button"
+            onClick={
+              handleStartCreating
+            }
+            className="mt-7 rounded-xl bg-white px-7 py-4 text-lg font-extrabold text-black hover:bg-gray-200"
+          >
+            {user
+              ? "Create Another Video"
+              : "Create Your First Video"}
+          </button>
+        </div>
       </section>
 
       {/* FOOTER */}
 
-      <footer className="max-w-6xl mx-auto border-t border-white/10 pt-8 pb-4 text-center text-white/40 text-sm">
-        <div className="mb-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
-          <button
-            type="button"
-            onClick={() => router.push("/privacy")}
-            className="hover:text-white transition"
-          >
-            Privacy Policy
-          </button>
+      <footer className="border-t border-white/10 px-4 py-8 text-center text-sm text-white/40 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  "/pricing"
+                )
+              }
+              className="hover:text-white"
+            >
+              Pricing
+            </button>
 
-          <button
-            type="button"
-            onClick={() => router.push("/terms")}
-            className="hover:text-white transition"
-          >
-            Terms of Service
-          </button>
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  "/privacy"
+                )
+              }
+              className="hover:text-white"
+            >
+              Privacy Policy
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  "/terms"
+                )
+              }
+              className="hover:text-white"
+            >
+              Terms of Service
+            </button>
+          </div>
+
+          <p>
+            ©{" "}
+            {new Date().getFullYear()}{" "}
+            NaijaVid AI. All rights
+            reserved.
+          </p>
         </div>
-
-        <p>
-          © {new Date().getFullYear()} NaijaVid AI. All rights reserved.
-        </p>
       </footer>
     </main>
   );
