@@ -3,6 +3,7 @@
 import {
   Suspense,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -14,6 +15,16 @@ import {
 import {
   useAuth,
 } from "@/components/providers/auth-provider";
+
+type VerificationResponse = {
+  success?: boolean;
+  message?: string;
+  error?: string;
+  plan?: string;
+  subscriptionStatus?: string;
+  subscriptionExpiresAt?: string;
+  duplicate?: boolean;
+};
 
 function FlutterwaveCallbackContent() {
   const router =
@@ -27,6 +38,9 @@ function FlutterwaveCallbackContent() {
     loading,
   } = useAuth();
 
+  const verificationStarted =
+    useRef(false);
+
   const [message, setMessage] =
     useState(
       "Verifying your payment..."
@@ -38,9 +52,6 @@ function FlutterwaveCallbackContent() {
     );
 
   useEffect(() => {
-    // Wait until Firebase has finished restoring
-    // the authenticated user after returning
-    // from Flutterwave.
     if (loading) {
       return;
     }
@@ -49,10 +60,6 @@ function FlutterwaveCallbackContent() {
 
     async function verifyPayment() {
       try {
-        // ===============================================
-        // REQUIRE AUTHENTICATED USER
-        // ===============================================
-
         if (!user) {
           if (!cancelled) {
             setSuccess(false);
@@ -64,10 +71,6 @@ function FlutterwaveCallbackContent() {
 
           return;
         }
-
-        // ===============================================
-        // READ FLUTTERWAVE CALLBACK PARAMETERS
-        // ===============================================
 
         const status =
           searchParams.get(
@@ -84,10 +87,6 @@ function FlutterwaveCallbackContent() {
             "tx_ref"
           );
 
-        // ===============================================
-        // BASIC CALLBACK CHECKS
-        // ===============================================
-
         if (
           status !==
           "successful"
@@ -96,31 +95,63 @@ function FlutterwaveCallbackContent() {
             setSuccess(false);
 
             setMessage(
-              "Payment was not completed successfully."
+              status === "cancelled"
+                ? "Payment was cancelled."
+                : "Payment was not completed successfully."
             );
           }
 
           return;
         }
 
-        if (!transactionId) {
+        if (
+          !transactionId ||
+          !/^\d+$/.test(
+            transactionId
+          )
+        ) {
           if (!cancelled) {
             setSuccess(false);
 
             setMessage(
-              "Missing Flutterwave transaction ID."
+              "Missing or invalid Flutterwave transaction ID."
             );
           }
 
           return;
         }
 
-        // ===============================================
-        // GET FRESH FIREBASE ID TOKEN
-        // ===============================================
+        if (!txRef) {
+          if (!cancelled) {
+            setSuccess(false);
+
+            setMessage(
+              "Missing Flutterwave transaction reference."
+            );
+          }
+
+          return;
+        }
+
+        if (
+          verificationStarted.current
+        ) {
+          return;
+        }
+
+        verificationStarted.current =
+          true;
+
+        setSuccess(null);
+
+        setMessage(
+          "Verifying your payment..."
+        );
 
         const idToken =
-          await user.getIdToken();
+          await user.getIdToken(
+            true
+          );
 
         if (!idToken) {
           throw new Error(
@@ -128,16 +159,11 @@ function FlutterwaveCallbackContent() {
           );
         }
 
-        // ===============================================
-        // VERIFY PAYMENT ON SERVER
-        // ===============================================
-
         const response =
           await fetch(
-            "/api/flutterwave/verify",
+            "/api/payment/flutterwave/verify",
             {
-              method:
-                "POST",
+              method: "POST",
 
               headers: {
                 "Content-Type":
@@ -152,10 +178,13 @@ function FlutterwaveCallbackContent() {
                   transactionId,
                   txRef,
                 }),
+
+              cache: "no-store",
             }
           );
 
-        let data: any = null;
+        let data:
+          VerificationResponse;
 
         try {
           data =
@@ -166,39 +195,35 @@ function FlutterwaveCallbackContent() {
           );
         }
 
-        // ===============================================
-        // HANDLE VERIFICATION FAILURE
-        // ===============================================
-
         if (
           !response.ok ||
-          !data?.success
+          data.success !== true
         ) {
           throw new Error(
-            data?.error ||
-              data?.message ||
+            data.error ||
+              data.message ||
               "Payment verification failed."
           );
         }
-
-        // ===============================================
-        // SUCCESS
-        // ===============================================
 
         if (!cancelled) {
           setSuccess(true);
 
           setMessage(
-            "Payment verified successfully. Your Founding Pro subscription is now active."
+            data.message ||
+              "Payment verified successfully. Your Founding Pro subscription is now active."
           );
         }
-      } catch (error) {
+      } catch (error: unknown) {
         console.error(
           "PAYMENT CALLBACK ERROR:",
           error
         );
 
         if (!cancelled) {
+          verificationStarted.current =
+            false;
+
           setSuccess(false);
 
           setMessage(
@@ -210,7 +235,7 @@ function FlutterwaveCallbackContent() {
       }
     }
 
-    verifyPayment();
+    void verifyPayment();
 
     return () => {
       cancelled = true;
@@ -221,16 +246,34 @@ function FlutterwaveCallbackContent() {
     searchParams,
   ]);
 
-  // =====================================================
-  // PAGE
-  // =====================================================
+  function goToGenerator() {
+    router.push(
+      "/generator"
+    );
+
+    router.refresh();
+  }
+
+  function returnToPricing() {
+    router.push(
+      "/pricing"
+    );
+  }
+
+  function goToLogin() {
+    const callbackPath =
+      `/payment/flutterwave/callback?${searchParams.toString()}`;
+
+    router.push(
+      `/login?redirect=${encodeURIComponent(
+        callbackPath
+      )}`
+    );
+  }
 
   return (
     <main className="flex min-h-screen items-center justify-center overflow-x-hidden bg-black px-3 py-6 text-white sm:px-5 sm:py-8">
-      <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-[#111] p-5 text-center sm:rounded-3xl sm:p-8">
-
-        {/* STATUS ICON */}
-
+      <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-[#111] p-5 text-center shadow-2xl sm:rounded-3xl sm:p-8">
         <div
           className={`mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full text-2xl font-bold ${
             success === true
@@ -247,13 +290,9 @@ function FlutterwaveCallbackContent() {
               : "…"}
         </div>
 
-        {/* TITLE */}
-
         <h1 className="mb-4 text-2xl font-bold leading-tight sm:text-3xl">
           Flutterwave Payment Status
         </h1>
-
-        {/* MESSAGE */}
 
         <p
           className={`break-words text-sm leading-6 sm:text-base sm:leading-7 ${
@@ -269,8 +308,6 @@ function FlutterwaveCallbackContent() {
             : message}
         </p>
 
-        {/* VERIFYING */}
-
         {success === null && (
           <div className="mt-6">
             <div className="mx-auto h-2 w-full max-w-xs overflow-hidden rounded-full bg-white/10">
@@ -283,15 +320,11 @@ function FlutterwaveCallbackContent() {
           </div>
         )}
 
-        {/* SUCCESS */}
-
         {success === true && (
           <button
             type="button"
-            onClick={() =>
-              router.push(
-                "/generator"
-              )
+            onClick={
+              goToGenerator
             }
             className="mt-6 min-h-12 w-full rounded-xl bg-white px-5 py-3.5 font-bold text-black transition hover:bg-gray-200 sm:mt-7 sm:w-auto sm:px-6"
           >
@@ -299,16 +332,12 @@ function FlutterwaveCallbackContent() {
           </button>
         )}
 
-        {/* FAILURE */}
-
         {success === false && (
           <div className="mt-6 space-y-3">
             <button
               type="button"
-              onClick={() =>
-                router.push(
-                  "/pricing"
-                )
+              onClick={
+                returnToPricing
               }
               className="min-h-12 w-full rounded-xl bg-white px-5 py-3.5 font-bold text-black transition hover:bg-gray-200 sm:w-auto sm:px-6"
             >
@@ -319,10 +348,8 @@ function FlutterwaveCallbackContent() {
               <div>
                 <button
                   type="button"
-                  onClick={() =>
-                    router.push(
-                      "/login"
-                    )
+                  onClick={
+                    goToLogin
                   }
                   className="min-h-12 w-full rounded-xl border border-white/10 px-5 py-3.5 font-semibold text-white transition hover:bg-white/10 sm:w-auto sm:px-6"
                 >
@@ -336,10 +363,6 @@ function FlutterwaveCallbackContent() {
     </main>
   );
 }
-
-// ========================================================
-// PAGE EXPORT
-// ========================================================
 
 export default function FlutterwaveCallbackPage() {
   return (

@@ -13,6 +13,9 @@ import {
   getAdminDb,
 } from "@/lib/firebase-admin";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const PRO_AMOUNT = 5000;
 const PRO_CURRENCY = "NGN";
 const SUBSCRIPTION_DAYS = 30;
@@ -25,12 +28,11 @@ type FlutterwaveVerificationResponse = {
     id?: number;
     tx_ref?: string;
     flw_ref?: string;
-
     amount?: number;
     charged_amount?: number;
-
     currency?: string;
     status?: string;
+    created_at?: string;
 
     customer?: {
       id?: number;
@@ -42,17 +44,15 @@ type FlutterwaveVerificationResponse = {
     meta?: {
       userId?: string;
       plan?: string;
-
       [key: string]: unknown;
     };
-
-    created_at?: string;
   };
 };
 
-// ========================================================
-// GET DATE FROM FIRESTORE VALUE
-// ========================================================
+type VerificationRequestBody = {
+  transactionId?: string | number;
+  txRef?: string;
+};
 
 function getExpiryDate(
   value: unknown
@@ -90,68 +90,54 @@ function getExpiryDate(
     typeof value === "string" ||
     typeof value === "number"
   ) {
-    const parsed =
+    const parsedDate =
       new Date(value);
 
     if (
       !Number.isNaN(
-        parsed.getTime()
+        parsedDate.getTime()
       )
     ) {
-      return parsed;
+      return parsedDate;
     }
   }
 
   return null;
 }
 
-// ========================================================
-// ADD SUBSCRIPTION DAYS
-// ========================================================
-
 function addSubscriptionDays(
   date: Date,
   days: number
-) {
+): Date {
   const result =
     new Date(date);
 
   result.setUTCDate(
-    result.getUTCDate() +
-      days
+    result.getUTCDate() + days
   );
 
   return result;
 }
 
-// ========================================================
-// EXTRACT USER ID FROM TX REF
-// ========================================================
-
 function getUserIdFromTxRef(
   txRef: string
-) {
-  if (
-    !txRef.startsWith(
-      "naijavid_"
-    )
-  ) {
+): string {
+  const prefix =
+    "naijavid_";
+
+  if (!txRef.startsWith(prefix)) {
     return "";
   }
 
   const withoutPrefix =
     txRef.substring(
-      "naijavid_".length
+      prefix.length
     );
 
   const lastUnderscore =
-    withoutPrefix.lastIndexOf(
-      "_"
-    );
+    withoutPrefix.lastIndexOf("_");
 
-  if (
-    lastUnderscore === -1
-  ) {
+  if (lastUnderscore === -1) {
     return "";
   }
 
@@ -163,23 +149,20 @@ function getUserIdFromTxRef(
     .trim();
 }
 
-// ========================================================
-// VERIFY PAYMENT
-// ========================================================
-
 export async function POST(
   request: NextRequest
 ) {
   try {
-    // ====================================================
-    // FLUTTERWAVE CONFIGURATION
-    // ====================================================
-
     const secretKey =
       process.env
-        .FLUTTERWAVE_SECRET_KEY;
+        .FLUTTERWAVE_SECRET_KEY
+        ?.trim();
 
     if (!secretKey) {
+      console.error(
+        "FLUTTERWAVE_SECRET_KEY is missing."
+      );
+
       return NextResponse.json(
         {
           success: false,
@@ -192,18 +175,13 @@ export async function POST(
       );
     }
 
-    // ====================================================
-    // VERIFY FIREBASE AUTHENTICATION
-    // ====================================================
-
     const authorization =
       request.headers.get(
         "authorization"
       );
 
     if (
-      !authorization ||
-      !authorization.startsWith(
+      !authorization?.startsWith(
         "Bearer "
       )
     ) {
@@ -245,10 +223,10 @@ export async function POST(
           .verifyIdToken(
             idToken
           );
-    } catch (authError) {
+    } catch (error) {
       console.error(
         "FLUTTERWAVE VERIFY AUTH ERROR:",
-        authError
+        error
       );
 
       return NextResponse.json(
@@ -266,9 +244,15 @@ export async function POST(
     const authenticatedUserId =
       decodedToken.uid;
 
-    if (
-      !authenticatedUserId
-    ) {
+    const authenticatedEmail =
+      typeof decodedToken.email ===
+      "string"
+        ? decodedToken.email
+            .trim()
+            .toLowerCase()
+        : "";
+
+    if (!authenticatedUserId) {
       return NextResponse.json(
         {
           success: false,
@@ -281,31 +265,18 @@ export async function POST(
       );
     }
 
-    // ====================================================
-    // REQUEST BODY
-    // ====================================================
+    let body:
+      VerificationRequestBody;
 
-    const body =
-      await request.json();
-
-    const transactionId =
-      String(
-        body.transactionId ||
-          ""
-      ).trim();
-
-    const callbackTxRef =
-      String(
-        body.txRef ||
-          ""
-      ).trim();
-
-    if (!transactionId) {
+    try {
+      body =
+        await request.json();
+    } catch {
       return NextResponse.json(
         {
           success: false,
           error:
-            "transactionId is required.",
+            "Invalid request body.",
         },
         {
           status: 400,
@@ -313,9 +284,44 @@ export async function POST(
       );
     }
 
-    // ====================================================
-    // VERIFY DIRECTLY WITH FLUTTERWAVE
-    // ====================================================
+    const transactionId =
+      String(
+        body.transactionId ?? ""
+      ).trim();
+
+    const callbackTxRef =
+      String(
+        body.txRef ?? ""
+      ).trim();
+
+    if (
+      !transactionId ||
+      !/^\d+$/.test(transactionId)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "A valid transactionId is required.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    if (!callbackTxRef) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "txRef is required.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
 
     const verificationResponse =
       await fetch(
@@ -336,8 +342,7 @@ export async function POST(
               "application/json",
           },
 
-          cache:
-            "no-store",
+          cache: "no-store",
         }
       );
 
@@ -348,6 +353,10 @@ export async function POST(
       verificationData =
         await verificationResponse.json();
     } catch {
+      console.error(
+        "Flutterwave returned invalid verification JSON."
+      );
+
       return NextResponse.json(
         {
           success: false,
@@ -360,9 +369,23 @@ export async function POST(
       );
     }
 
-    // ====================================================
-    // FLUTTERWAVE API RESULT
-    // ====================================================
+    console.log(
+      "FLUTTERWAVE VERIFY RESPONSE:",
+      {
+        httpStatus:
+          verificationResponse.status,
+
+        flutterwaveStatus:
+          verificationData.status,
+
+        message:
+          verificationData.message,
+
+        transactionId,
+
+        authenticatedUserId,
+      }
+    );
 
     if (
       !verificationResponse.ok ||
@@ -372,15 +395,19 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-
           error:
             verificationData.message ||
             "Flutterwave verification failed.",
         },
         {
           status:
-            verificationResponse.status ||
-            500,
+            verificationResponse
+              .status >= 400 &&
+            verificationResponse
+              .status <= 599
+              ? verificationResponse
+                  .status
+              : 502,
         }
       );
     }
@@ -401,10 +428,6 @@ export async function POST(
       );
     }
 
-    // ====================================================
-    // PAYMENT STATUS
-    // ====================================================
-
     if (
       transaction.status !==
       "successful"
@@ -412,7 +435,6 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-
           error:
             `Payment status is ${
               transaction.status ||
@@ -425,18 +447,20 @@ export async function POST(
       );
     }
 
-    // ====================================================
-    // CURRENCY
-    // ====================================================
+    const verifiedCurrency =
+      String(
+        transaction.currency ?? ""
+      )
+        .trim()
+        .toUpperCase();
 
     if (
-      transaction.currency !==
+      verifiedCurrency !==
       PRO_CURRENCY
     ) {
       return NextResponse.json(
         {
           success: false,
-
           error:
             `Invalid payment currency. Expected ${PRO_CURRENCY}.`,
         },
@@ -446,11 +470,12 @@ export async function POST(
       );
     }
 
-    // ====================================================
-    // AMOUNT
-    // ====================================================
-
     const paidAmount =
+      Number(
+        transaction.amount ?? 0
+      );
+
+    const chargedAmount =
       Number(
         transaction
           .charged_amount ??
@@ -462,13 +487,11 @@ export async function POST(
       !Number.isFinite(
         paidAmount
       ) ||
-      paidAmount <
-        PRO_AMOUNT
+      paidAmount < PRO_AMOUNT
     ) {
       return NextResponse.json(
         {
           success: false,
-
           error:
             `Invalid payment amount. Expected at least NGN ${PRO_AMOUNT}.`,
         },
@@ -478,14 +501,26 @@ export async function POST(
       );
     }
 
-    // ====================================================
-    // TX REF
-    // ====================================================
+    if (
+      !Number.isFinite(
+        chargedAmount
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Invalid charged payment amount.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
 
     const verifiedTxRef =
       String(
-        transaction.tx_ref ||
-          ""
+        transaction.tx_ref ?? ""
       ).trim();
 
     if (!verifiedTxRef) {
@@ -502,14 +537,12 @@ export async function POST(
     }
 
     if (
-      callbackTxRef &&
       callbackTxRef !==
-        verifiedTxRef
+      verifiedTxRef
     ) {
       return NextResponse.json(
         {
           success: false,
-
           error:
             "Transaction reference mismatch.",
         },
@@ -518,10 +551,6 @@ export async function POST(
         }
       );
     }
-
-    // ====================================================
-    // PLAN
-    // ====================================================
 
     const verifiedPlan =
       typeof transaction.meta
@@ -547,10 +576,6 @@ export async function POST(
       );
     }
 
-    // ====================================================
-    // PAYMENT OWNER
-    // ====================================================
-
     const metaUserId =
       typeof transaction.meta
         ?.userId === "string"
@@ -566,8 +591,7 @@ export async function POST(
     if (
       metaUserId &&
       txRefUserId &&
-      metaUserId !==
-        txRefUserId
+      metaUserId !== txRefUserId
     ) {
       return NextResponse.json(
         {
@@ -598,10 +622,6 @@ export async function POST(
       );
     }
 
-    // ====================================================
-    // AUTHENTICATED OWNERSHIP
-    // ====================================================
-
     if (
       paymentUserId !==
       authenticatedUserId
@@ -627,9 +647,31 @@ export async function POST(
       );
     }
 
-    // ====================================================
-    // FIRESTORE REFERENCES
-    // ====================================================
+    const paymentEmail =
+      String(
+        transaction.customer
+          ?.email ?? ""
+      )
+        .trim()
+        .toLowerCase();
+
+    if (
+      authenticatedEmail &&
+      paymentEmail &&
+      authenticatedEmail !==
+        paymentEmail
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "The payment email does not match the authenticated account.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
 
     const db =
       getAdminDb();
@@ -643,51 +685,45 @@ export async function POST(
 
     const paymentId =
       String(
-        transaction.id ||
-          transactionId
+        transaction.id ??
+        transactionId
+      ).trim();
+
+    if (!paymentId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Verified transaction has no transaction ID.",
+        },
+        {
+          status: 400,
+        }
       );
+    }
 
     const paymentRef =
       db
-        .collection(
-          "payments"
-        )
-        .doc(
-          paymentId
-        );
+        .collection("payments")
+        .doc(paymentId);
 
     const now =
       new Date();
-
-    // ====================================================
-    // FIRESTORE TRANSACTION
-    // ====================================================
 
     const result =
       await db.runTransaction(
         async (
           firestoreTransaction
         ) => {
-          // ==============================================
-          // READ PAYMENT AND USER BEFORE WRITING
-          // ==============================================
-
-          const [
-            existingPayment,
-            userSnapshot,
-          ] = await Promise.all([
-            firestoreTransaction.get(
+          const existingPayment =
+            await firestoreTransaction.get(
               paymentRef
-            ),
+            );
 
-            firestoreTransaction.get(
+          const userSnapshot =
+            await firestoreTransaction.get(
               userRef
-            ),
-          ]);
-
-          // ==============================================
-          // DUPLICATE TRANSACTION PROTECTION
-          // ==============================================
+            );
 
           if (
             existingPayment.exists &&
@@ -695,23 +731,37 @@ export async function POST(
               ?.verified === true
           ) {
             const existingPaymentData =
-              existingPayment.data() ||
+              existingPayment.data() ??
               {};
 
             const existingUserId =
               String(
                 existingPaymentData
-                  .userId ||
-                  ""
-              );
+                  .userId ?? ""
+              ).trim();
+
+            const existingTxRef =
+              String(
+                existingPaymentData
+                  .txRef ?? ""
+              ).trim();
 
             if (
-              existingUserId &&
               existingUserId !==
-                authenticatedUserId
+              authenticatedUserId
             ) {
               throw new Error(
                 "This transaction has already been assigned to another account."
+              );
+            }
+
+            if (
+              existingTxRef &&
+              existingTxRef !==
+                verifiedTxRef
+            ) {
+              throw new Error(
+                "The stored transaction reference does not match."
               );
             }
 
@@ -722,21 +772,15 @@ export async function POST(
               );
 
             return {
-              duplicate:
-                true,
-
+              duplicate: true,
               expiresAt:
                 existingExpiry,
             };
           }
 
-          // ==============================================
-          // CURRENT USER SUBSCRIPTION
-          // ==============================================
-
           const userData =
             userSnapshot.exists
-              ? userSnapshot.data() ||
+              ? userSnapshot.data() ??
                 {}
               : {};
 
@@ -746,29 +790,14 @@ export async function POST(
                 .subscriptionExpiresAt
             );
 
-          const currentPlan =
-            userData.plan === "pro"
-              ? "pro"
-              : "free";
-
-          const currentStatus =
+          const hasActiveFutureSubscription =
+            userData.plan === "pro" &&
             userData
               .subscriptionStatus ===
-            "active"
-              ? "active"
-              : "inactive";
-
-          const hasActiveFutureSubscription =
-            currentPlan === "pro" &&
-            currentStatus ===
               "active" &&
             currentExpiry !== null &&
             currentExpiry.getTime() >
               now.getTime();
-
-          // ==============================================
-          // RENEWAL BASE DATE
-          // ==============================================
 
           const renewalBaseDate =
             hasActiveFutureSubscription &&
@@ -776,31 +805,21 @@ export async function POST(
               ? currentExpiry
               : now;
 
-          // ==============================================
-          // ADD 30 DAYS
-          // ==============================================
-
           const newExpiry =
             addSubscriptionDays(
               renewalBaseDate,
               SUBSCRIPTION_DAYS
             );
 
-          // ==============================================
-          // USER UPDATE
-          // ==============================================
-
           const userUpdate:
             Record<string, unknown> =
             {
-              plan:
-                "pro",
+              plan: "pro",
 
               subscriptionStatus:
                 "active",
 
-              foundingMember:
-                true,
+              foundingMember: true,
 
               generationLimit:
                 999999,
@@ -825,23 +844,16 @@ export async function POST(
                   .serverTimestamp(),
             };
 
-          // ==============================================
-          // NEW OR EXPIRED SUBSCRIPTION
-          // ==============================================
-
           if (
-            !hasActiveFutureSubscription
+            hasActiveFutureSubscription
           ) {
             userUpdate
-              .subscriptionStartedAt =
+              .subscriptionRenewedAt =
               FieldValue
                 .serverTimestamp();
           } else {
-            // Existing Pro user renewed
-            // before expiry.
-
             userUpdate
-              .subscriptionRenewedAt =
+              .subscriptionStartedAt =
               FieldValue
                 .serverTimestamp();
           }
@@ -850,14 +862,9 @@ export async function POST(
             userRef,
             userUpdate,
             {
-              merge:
-                true,
+              merge: true,
             }
           );
-
-          // ==============================================
-          // PAYMENT RECORD
-          // ==============================================
 
           firestoreTransaction.set(
             paymentRef,
@@ -874,21 +881,16 @@ export async function POST(
               flutterwaveRef:
                 String(
                   transaction
-                    .flw_ref ||
-                    ""
+                    .flw_ref ?? ""
                 ),
 
               amount:
-                Number(
-                  transaction.amount ||
-                    paidAmount
-                ),
-
-              chargedAmount:
                 paidAmount,
 
+              chargedAmount,
+
               currency:
-                transaction.currency,
+                verifiedCurrency,
 
               paymentStatus:
                 transaction.status,
@@ -897,21 +899,15 @@ export async function POST(
                 "founding_pro",
 
               customerEmail:
-                String(
-                  transaction.customer
-                    ?.email ||
-                    ""
-                ),
+                paymentEmail,
 
               customerName:
                 String(
                   transaction.customer
-                    ?.name ||
-                    ""
+                    ?.name ?? ""
                 ),
 
-              verified:
-                true,
+              verified: true,
 
               verifiedAt:
                 FieldValue
@@ -934,24 +930,17 @@ export async function POST(
                 hasActiveFutureSubscription,
             },
             {
-              merge:
-                true,
+              merge: true,
             }
           );
 
           return {
-            duplicate:
-              false,
-
+            duplicate: false,
             expiresAt:
               newExpiry,
           };
         }
       );
-
-    // ====================================================
-    // FINAL EXPIRY
-    // ====================================================
 
     const finalExpiry =
       result.expiresAt;
@@ -962,28 +951,21 @@ export async function POST(
       );
     }
 
-    // ====================================================
-    // SUCCESS
-    // ====================================================
-
     return NextResponse.json(
       {
-        success:
-          true,
+        success: true,
 
         message:
           result.duplicate
             ? "Payment was already verified. Founding Pro remains active."
             : "Payment verified successfully. Founding Pro is now active.",
 
-        plan:
-          "pro",
+        plan: "pro",
 
         subscriptionStatus:
           "active",
 
-        foundingMember:
-          true,
+        foundingMember: true,
 
         duplicate:
           result.duplicate,
@@ -991,8 +973,10 @@ export async function POST(
         amount:
           paidAmount,
 
+        chargedAmount,
+
         currency:
-          transaction.currency,
+          verifiedCurrency,
 
         txRef:
           verifiedTxRef,
@@ -1007,7 +991,7 @@ export async function POST(
         status: 200,
       }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error(
       "FLUTTERWAVE VERIFY ERROR:",
       error
@@ -1018,8 +1002,9 @@ export async function POST(
         success: false,
 
         error:
-          error?.message ||
-          "Payment verification failed.",
+          error instanceof Error
+            ? error.message
+            : "Payment verification failed.",
       },
       {
         status: 500,
